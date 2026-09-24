@@ -63,7 +63,10 @@ def _pixels_features(cube, rows, cols) -> np.ndarray:
     series = np.asarray(cube[:, :, rows, cols], dtype="float32")  # (12, 3, n)
     series = np.transpose(series, (2, 0, 1))  # (n, 12, 3)
     F, _ = harmonic_features(series, MONTHS)
-    return F
+    # Raw monthly values as well (NaN where cloudy; gradient boosting handles missing values).
+    # They add ~3 points of spatial-CV accuracy over the harmonic summary alone, mostly on the
+    # eucalyptus / native broadleaf split (checked on a 48k-pixel 2024 sample: 0.758 -> 0.788).
+    return np.column_stack([F, series.reshape(len(series), -1)])
 
 
 def sample_training(lab: np.ndarray, per_class: int, seed: int):
