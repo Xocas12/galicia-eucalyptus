@@ -56,6 +56,24 @@ def harmonic_fit(series: np.ndarray, months: np.ndarray, n_harmonics: int = 2, r
     return np.linalg.solve(XtX, XtY[..., None])[..., 0]
 
 
+def row_nanpercentile(a: np.ndarray, q: float) -> np.ndarray:
+    """Per-row percentile ignoring NaN, vectorised; matches np.nanpercentile (linear method).
+
+    np.nanpercentile falls back to a Python loop over rows when NaNs are present, which is far
+    too slow for tens of millions of pixels.
+    """
+    a = np.sort(np.asarray(a, dtype=float), axis=1)  # NaN sorts last
+    k = np.isfinite(a).sum(axis=1)
+    pos = (np.maximum(k, 1) - 1) * q / 100.0
+    lo = np.floor(pos).astype(int)
+    hi = np.minimum(lo + 1, np.maximum(k - 1, 0))
+    rows = np.arange(len(a))
+    frac = pos - lo
+    out = a[rows, lo] * (1 - frac) + a[rows, hi] * frac
+    out[k == 0] = np.nan
+    return out
+
+
 def harmonic_features(series: np.ndarray, months: np.ndarray, names=("ndvi", "ndmi", "nbr")):
     """Feature matrix from a (n_pixels, n_obs, n_indices) cube of index time series.
 
@@ -70,13 +88,8 @@ def harmonic_features(series: np.ndarray, months: np.ndarray, names=("ndvi", "nd
         amp1 = np.hypot(c[:, 1], c[:, 2])
         phase = np.arctan2(c[:, 2], c[:, 1])
         amp2 = np.hypot(c[:, 3], c[:, 4])
-        with np.errstate(all="ignore"):
-            import warnings
-
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore", RuntimeWarning)
-                p10 = np.nanpercentile(s, 10, axis=1)
-                p90 = np.nanpercentile(s, 90, axis=1)
+        p10 = row_nanpercentile(s, 10)
+        p90 = row_nanpercentile(s, 90)
         feats += [c[:, 0], amp1, np.cos(phase), np.sin(phase), amp2, p10, p90, p90 - p10]
         cols += [
             f"{nm}_{k}" for k in ("mean", "amp1", "phcos", "phsin", "amp2", "p10", "p90", "rng")

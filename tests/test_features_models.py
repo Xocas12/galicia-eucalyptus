@@ -77,3 +77,20 @@ def test_budyko_fit_recovers_parameters():
     )
     est = fit_budyko(df)
     assert abs(est["w_euc"][0] - tp.w_euc) < 3 * est["w_euc"][1] + 0.05
+
+
+def test_row_nanpercentile_matches_numpy():
+    import warnings
+
+    from eucalyptus_impact.features.spectral import row_nanpercentile
+
+    rng = np.random.default_rng(0)
+    a = rng.normal(size=(500, 12))
+    a[rng.random(a.shape) < 0.4] = np.nan
+    a[3] = np.nan
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        for q in (10, 50, 90):
+            assert np.allclose(
+                row_nanpercentile(a, q), np.nanpercentile(a, q, axis=1), equal_nan=True
+            )
