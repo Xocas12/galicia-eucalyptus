@@ -1,0 +1,6 @@
+.venv/
+outputs/
+data/raw/
+data/interim/
+*.parquet
+*.tif

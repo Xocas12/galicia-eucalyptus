@@ -1,0 +1,20 @@
+# Full synthetic run at 1 km over a Galicia-sized domain (about 30k land cells x 25 years).
+seed: 20250101
+grid:
+  resolution_m: 1000
+  # ETRS89 / UTM zone 29N bounding box roughly covering Galicia.
+  bbox_utm29n: [470000, 4625000, 690000, 4850000]
+  block_size_km: 20
+years: [2000, 2024]
+n_catchments: 60
+causal:
+  n_folds: 5
+  max_rows: 250000
+landcover:
+  n_train_pixels: 12000
+  n_map_pixels: 60000
+  reference_per_class: 150
+scenarios:
+  horizon: 2040
+  restoration_share: 0.25
+output_dir: outputs/default
