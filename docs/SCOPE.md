@@ -142,11 +142,18 @@ has the ingestion adapters. The adapters are written but **have not been run fro
   sign, and the causal estimators recover the planted effects.
 - Differencing two maps roughly doubles the apparent conversion area. Stratified estimation
   is mandatory.
-- Map error in the treatment attenuates DML estimates, and conditioning on the other (also noisy)
-  cover fractions amplifies it. Regression calibration with the map-error variance removes most
-  but not all of it (about 15% residual on soil moisture). **Open item before M3:** propagate
-  full classifier uncertainty (posterior class probabilities, or SIMEX) instead of a
-  single-variance correction.
+- Map error attenuates DML estimates. Because *every* cover fraction is noisy, controls
+  included, a single-variance regression calibration mis-corrects. SIMEX (extra simulated map
+  error, extrapolated back to zero) recovers the truth and is the correction used.
+- Tree-only nuisance learners leave regularization bias on near-linear structure (about 17% on
+  soil moisture with perfect maps). The default nuisance learner is now ridge plus boosted
+  residuals.
+- The fire-occurrence effect has a low robustness value (about 1% partial R²). Real-data
+  conclusions on fire *frequency* must be read through the sensitivity table. Severity and soil
+  moisture are much sturdier.
+- Static scenario pricing overstates restoration benefits (about 1.5 to 1.9×) because restored stands
+  also burn and revert to shrub. **Open item before M5:** a dynamic model-based projection
+  using the fitted conversion and fire models.
 - Small scenario contrasts (the cap) are within simulation noise. Only the large ones
   (restoration) are resolved.
 
@@ -169,7 +176,8 @@ has the ingestion adapters. The adapters are written but **have not been run fro
 |---|---|---|
 | M0 | Scope (this document), repo skeleton, data catalog | done |
 | M1 | Synthetic simulator with known effects, full pipeline end to end, tests | done |
-| M2 | Real-data ingestion: Sentinel-2 composites, MFE/IFN labels, EFFIS, gauges → 1 km panel | adapters written, not yet run |
+| M1b | Robustness: group effects, OVB sensitivity, SIMEX, cluster-size SEs; adapter tests on fixtures | done |
+| M2 | Real-data ingestion: Sentinel-2 composites, MFE/IFN labels, EFFIS, gauges → 1 km panel | adapters written and fixture-tested, not yet run live |
 | M3 | Species map 2017–present, Landsat back-cast to 2000, Olofsson areas | pending data |
 | M4 | Causal estimates on real data, robustness and placebo tests | pending M3 |
 | M5 | Scenario projections, restoration priority map, policy brief | pending M4 |

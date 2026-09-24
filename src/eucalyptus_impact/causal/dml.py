@@ -8,12 +8,14 @@ blocks, because fire and hydrology outcomes are spatially correlated.
 
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass, field, fields
 
 import numpy as np
+import pandas as pd
 from sklearn.ensemble import HistGradientBoostingRegressor
 
 from ..validation.spatial_cv import SpatialBlockKFold
+from .learners import LinearPlusBoost
 
 
 @dataclass
@@ -25,6 +27,8 @@ class EffectEstimate:
     n: int
     truth: float | None = None
     reliability: float | None = None
+    # Cross-fitted residuals etc. for sensitivity analysis and subgroup effects; not serialised.
+    diag: dict = field(default_factory=dict, repr=False, compare=False)
 
     @property
     def ci95(self) -> tuple[float, float]:
@@ -38,13 +42,18 @@ class EffectEstimate:
         return bool(lo <= self.truth <= hi)
 
     def to_dict(self) -> dict:
-        d = asdict(self)
+        d = {f.name: getattr(self, f.name) for f in fields(self) if f.name != "diag"}
         d["ci95"] = list(self.ci95)
         d["covers_truth"] = self.covers_truth
         return d
 
 
 def _default_learner(seed: int):
+    return LinearPlusBoost(seed=seed)
+
+
+def boosted_trees(seed: int):
+    """Plain gradient boosting (the earlier default), kept for comparison."""
     return HistGradientBoostingRegressor(
         max_iter=250, learning_rate=0.08, max_leaf_nodes=31, min_samples_leaf=40, random_state=seed
     )
@@ -98,8 +107,49 @@ def dml_plr(
     psi = res_d * res_y - theta * (res_d**2 - (d_error_var or 0.0))
     reliability = float(1 - (d_error_var or 0.0) / np.mean(res_d**2))
     return EffectEstimate(
-        name, theta, cluster_se(psi, groups, jac), method, len(y), reliability=reliability
+        name,
+        theta,
+        cluster_se(psi, groups, jac),
+        method,
+        len(y),
+        reliability=reliability,
+        diag={"res_y": res_y, "res_d": res_d, "groups": groups, "d_error_var": d_error_var or 0.0},
     )
+
+
+def reclustered_se(est: EffectEstimate, groups) -> float:
+    """SE of a DML estimate recomputed with a different clustering (e.g. larger blocks)."""
+    r = est.diag
+    jac = float(np.mean(r["res_d"] ** 2)) - r["d_error_var"]
+    psi = r["res_d"] * r["res_y"] - est.estimate * (r["res_d"] ** 2 - r["d_error_var"])
+    return cluster_se(psi, np.asarray(groups), jac)
+
+
+def group_effects(est: EffectEstimate, labels, truth=None) -> pd.DataFrame:
+    """Group average treatment effects (GATEs) from the cross-fitted residuals of one DML fit.
+
+    Within each group g: theta_g = sum(res_d * res_y) / sum(res_d^2), with SEs clustered on the
+    same spatial blocks. `truth` (per-row true effects, synthetic runs only) is averaged per group.
+    """
+    r = est.diag
+    labels = np.asarray(labels)
+    rows = []
+    for g in pd.unique(labels):
+        m = labels == g
+        rd, ry = r["res_d"][m], r["res_y"][m]
+        jac = float(np.mean(rd**2)) - r["d_error_var"]
+        th = float(np.mean(rd * ry) / jac)
+        psi = rd * ry - th * (rd**2 - r["d_error_var"])
+        row = {
+            "group": g,
+            "estimate": th,
+            "se": cluster_se(psi, r["groups"][m], jac),
+            "n": int(m.sum()),
+        }
+        if truth is not None:
+            row["truth"] = float(np.mean(np.asarray(truth)[m]))
+        rows.append(row)
+    return pd.DataFrame(rows).sort_values("group").reset_index(drop=True)
 
 
 def ols(y, X, groups=None, name: str = "coef", col: int = 0) -> EffectEstimate:

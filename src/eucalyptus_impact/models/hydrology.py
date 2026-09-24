@@ -71,6 +71,21 @@ def budyko_runoff_effect(df: pd.DataFrame, params: dict, delta: float = 0.01) ->
     return float(np.mean(-(fu_et(P, PET, w + th[1] * delta) - fu_et(P, PET, w)) / delta))
 
 
+SM_COVARIATES = [
+    "elev",
+    "slope",
+    "continentality",
+    "precip_mean",
+    "pet_mean",
+    "summer_temp",
+    "log_pop",
+    "dist_coast_km",
+    "f_pine",
+    "f_native_broadleaf",
+    "f_shrub",
+]
+
+
 def water_effects(
     catch: pd.DataFrame, xsec: pd.DataFrame, n_folds=5, seed=0, d_error_var: float | None = None
 ) -> dict:
@@ -97,19 +112,7 @@ def water_effects(
         "eucalyptus -> runoff", b_eff, float("nan"), "Budyko-Fu", len(catch), truth
     )
 
-    sm_cov = [
-        "elev",
-        "slope",
-        "continentality",
-        "precip_mean",
-        "pet_mean",
-        "summer_temp",
-        "log_pop",
-        "dist_coast_km",
-        "f_pine",
-        "f_native_broadleaf",
-        "f_shrub",
-    ]
+    sm_cov = SM_COVARIATES
     sm_dml = dml_plr(
         xsec["soil_moisture"],
         xsec["f_eucalyptus"],

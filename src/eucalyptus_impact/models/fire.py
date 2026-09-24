@@ -165,7 +165,10 @@ def estimate_fire_effects(
             seed,
             name="reverse check: future eucalyptus gain ~ P(burn)",
         )
+    keep = [c for c in ("x", "y", "continentality", "fwi", "true_te_fire") if c in df]
     return {
+        "occurrence_frame": df[keep].reset_index(drop=True),
+        "severity_frame": b.reset_index(drop=True),
         "occurrence_dml": occ_dml,
         "occurrence_naive": occ_naive,
         "occurrence_dml_me": occ_me,

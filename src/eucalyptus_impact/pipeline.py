@@ -8,6 +8,9 @@ import time
 import numpy as np
 import pandas as pd
 
+from .causal.dml import dml_plr, group_effects, reclustered_se
+from .causal.sensitivity import bias_bound, robustness_value
+from .causal.simex import simex
 from .config import StudyConfig
 from .data.synthetic import (
     CLASSES,
@@ -18,11 +21,16 @@ from .data.synthetic import (
     simulate_landscape,
     simulate_spectral_pixels,
 )
-from .features.panel import build_catchment_panel, build_cell_cross_section, build_cell_panel
+from .features.panel import (
+    COVER_COLS,
+    build_catchment_panel,
+    build_cell_cross_section,
+    build_cell_panel,
+)
 from .features.spectral import harmonic_features
 from .models.conversion import attribute_loss_events, conversion_drivers, transition_matrix
-from .models.fire import estimate_fire_effects, fit_susceptibility
-from .models.hydrology import water_effects
+from .models.fire import CONFOUNDERS, estimate_fire_effects, fit_susceptibility
+from .models.hydrology import SM_COVARIATES, water_effects
 from .models.landcover import olofsson_area, stratified_reference_sample, train_species_classifier
 from .scenarios import run_scenarios
 
@@ -132,10 +140,13 @@ def run(cfg: StudyConfig, land: Landscape | None = None) -> dict:
 
     kw = dict(n_folds=cfg.causal.n_folds, seed=cfg.seed, max_rows=cfg.causal.max_rows)
     res["fire_susceptibility"] = fit_susceptibility(panel, **kw)
-    res["fire_effects"] = estimate_fire_effects(panel, **kw, d_error_var=me_var)
+    # Map error is corrected with SIMEX in run_robustness. The single-variance regression
+    # calibration (dml_plr's d_error_var) over-corrects once the other, equally noisy, cover
+    # fractions are partialled out, so it is not used for headline numbers.
+    res["fire_effects"] = estimate_fire_effects(panel, **kw)
     log.info("fire done (%.1fs)", time.time() - t0)
 
-    water = water_effects(catch, xsec, cfg.causal.n_folds, cfg.seed, d_error_var=me_var)
+    water = water_effects(catch, xsec, cfg.causal.n_folds, cfg.seed)
     water["soil_moisture_dml"].truth = land.truth.sm_euc
     if water["soil_moisture_dml_me"] is not None:
         water["soil_moisture_dml_me"].truth = land.truth.sm_euc
@@ -150,10 +161,97 @@ def run(cfg: StudyConfig, land: Landscape | None = None) -> dict:
     res["catchment_panel"] = catch
     log.info("water done (%.1fs)", time.time() - t0)
 
+    res["robustness"] = run_robustness(res, xsec, cfg, me_var)
+    log.info("robustness done (%.1fs)", time.time() - t0)
+
     res["scenarios"] = run_scenarios(land, res, cfg)
     log.info("scenarios done (%.1fs)", time.time() - t0)
     res["runtime_s"] = time.time() - t0
     return res
+
+
+def _blocks(x, y, size_km: float) -> np.ndarray:
+    k = size_km * 1000
+    return (np.floor(x / k) * 100_000 + np.floor(y / k)).astype(np.int64)
+
+
+def run_robustness(res: dict, xsec: pd.DataFrame, cfg: StudyConfig, me_var: float) -> dict:
+    """Heterogeneity, unobserved-confounding sensitivity, SE block-size sensitivity and SIMEX."""
+    fe = res["fire_effects"]
+    occ = fe.get("occurrence_dml_me") or fe["occurrence_dml"]
+    fr = fe["occurrence_frame"]
+    out: dict = {}
+
+    # Group effects: where does eucalyptus raise fire risk most?
+    truth = fr["true_te_fire"] if "true_te_fire" in fr else None
+    cont = pd.qcut(fr["continentality"], 3, labels=["1 coast", "2 transition", "3 interior"])
+    fwi = pd.qcut(fr["fwi"], 3, labels=["1 low FWI", "2 mid FWI", "3 high FWI"])
+    out["gate_region"] = group_effects(occ, cont.astype(str), truth)
+    out["gate_fwi"] = group_effects(occ, fwi.astype(str), truth)
+
+    # How strong would an unmapped confounder have to be?
+    rows = []
+    sev = fe.get("severity_dml_me") or fe["severity_dml"]
+    sm = res["water"].get("soil_moisture_dml_me") or res["water"]["soil_moisture_dml"]
+    for est in (occ, sev, sm):
+        rows.append(
+            {
+                "effect": est.name,
+                "estimate": est.estimate,
+                "rv_estimate": robustness_value(est),
+                "rv_ci": robustness_value(est, alpha_z=1.96),
+                "max_bias_r2_0.02": bias_bound(est, 0.02, 0.02),
+                "max_bias_r2_0.05": bias_bound(est, 0.05, 0.05),
+            }
+        )
+    out["sensitivity"] = pd.DataFrame(rows)
+
+    # Spatial autocorrelation: does the SE survive larger clusters?
+    if {"x", "y"} <= set(fr.columns):
+        out["se_by_block"] = pd.DataFrame(
+            [
+                {"block_km": b, "se": reclustered_se(occ, _blocks(fr["x"], fr["y"], b))}
+                for b in (5, 10, 20, 40, 80)
+            ]
+        )
+
+    # SIMEX: correct map error in *all* cover fractions, not only the treatment.
+    if cfg.causal.simex:
+
+        def sm_est(d):
+            return dml_plr(
+                d["soil_moisture"],
+                d["f_eucalyptus"],
+                d[SM_COVARIATES].to_numpy(),
+                d["block"],
+                cfg.causal.n_folds,
+                cfg.seed,
+                name="eucalyptus -> summer soil moisture",
+            )
+
+        sm_simex, sm_path = simex(sm_est, xsec, COVER_COLS, me_var, seed=cfg.seed)
+        sm_simex.truth = res["land"].truth.sm_euc
+
+        sev_df = fe["severity_frame"]
+
+        def sev_est(d):
+            return dml_plr(
+                d["dnbr"],
+                d["f_eucalyptus"],
+                d[CONFOUNDERS].to_numpy(),
+                d["block"],
+                cfg.causal.n_folds,
+                cfg.seed,
+                name="eucalyptus -> dNBR",
+            )
+
+        sev_simex, sev_path = simex(sev_est, sev_df, COVER_COLS, me_var, seed=cfg.seed)
+        sev_simex.truth = fe["severity_dml"].truth
+        out["simex"] = {"soil_moisture": sm_simex, "severity": sev_simex}
+        out["simex_path"] = pd.concat(
+            [sm_path.assign(effect=sm_simex.name), sev_path.assign(effect=sev_simex.name)]
+        )
+    return out
 
 
 def effect_table(res: dict) -> pd.DataFrame:
@@ -178,6 +276,7 @@ def effect_table(res: dict) -> pd.DataFrame:
         w["soil_moisture_matching"],
         f.get("placebo"),
     ]
+    ests += list(res.get("robustness", {}).get("simex", {}).values())
     ests = [e for e in ests if e is not None]
     rows = []
     for e in ests:

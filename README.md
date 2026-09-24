@@ -19,13 +19,15 @@ Self-contained subproject: it shares nothing with `gosplan/` at the repository r
 ```bash
 cd galicia-eucalyptus
 uv venv && uv pip install -e '.[dev]'          # add '.[geo]' for real-data ingestion
-.venv/bin/pytest                                # 23 tests, ~1 min
+.venv/bin/pytest                                # 34 tests, ~2.5 min
 .venv/bin/euc run --config configs/fast.yaml    # 4 km smoke run, ~1 min  -> outputs/fast/
-.venv/bin/euc run --config configs/default.yaml # 1 km full run, ~3.5 min -> outputs/default/
+.venv/bin/euc run --config configs/default.yaml # 1 km full run, ~6 min   -> outputs/default/
 .venv/bin/euc catalog                           # the real data sources
 ```
 
-Each run writes `report.md`, `metrics.json`, CSV tables and figures to its `output_dir`.
+Each run writes `report.md`, `metrics.json`, CSV tables, figures and a restoration-priority
+map (`restoration_priority.csv`, plus a GeoTIFF in EPSG:25829 when the `geo` extra is installed)
+to its `output_dir`.
 
 ## What the pipeline does
 
@@ -36,6 +38,7 @@ Each run writes `report.md`, `metrics.json`, CSV tables and figures to its `outp
 | Conversion drivers | What drives planting, and does fire feed it? | Gradient-boosting driver model with permutation importance; DML effect of recent fire on conversion |
 | Fire | Does eucalyptus raise fire occurrence and severity? | Susceptibility model (spatial-CV AUC, calibration); partially linear DML with spatial cross-fitting and block-clustered SEs; per-class cover effects; reverse-causality check |
 | Water | Does eucalyptus reduce runoff and soil moisture? | Catchment two-way fixed effects; Budyko (Fu) fit with a cover-dependent land-surface parameter; DML and bias-corrected matching with balance diagnostics for soil moisture |
+| Robustness | Where is the effect largest, and how fragile is it? | Group effects (coast vs interior, by fire weather); omitted-variable-bias bounds and robustness values; SE sensitivity to cluster size; SIMEX correction for map error in all cover fractions |
 | Policy | What do a cap and restoration buy? | Forward projection of BAU / cap / targeted vs random restoration to 2040; model-based projection checked against the simulated outcome |
 
 Every causal estimate is reported next to a **naive** one, so the size of the confounding bias is
@@ -47,21 +50,34 @@ These are properties of the *methods*, not facts about Galicia:
 
 - **Naive analysis gets the sign wrong.** Plantations sit on the wet, mild coast where fire
   weather is low. A bivariate regression says eucalyptus *reduces* fire occurrence and severity.
-  DML recovers the planted positive effect: severity 122 ± 16 dNBR against a true 120.
+  DML recovers the planted positive effects: severity 122 ± 14 dNBR against a true 120, and
+  occurrence 0.028 ± 0.012 against a true 0.022.
 - **The same happens for water.** Plantations are in the wettest catchments, so naive runoff
   regressions come out positive. Catchment fixed effects (−109 mm per unit share) and the Budyko
   fit (−106) recover the true −114.
 - **Map-based change is badly inflated.** Differencing two classified maps overstates
   "other→eucalyptus" conversion about 2×. The stratified estimator corrects this: 167k ± 60k ha
   against a true 156k ha.
-- **Random CV modestly overstates map accuracy** compared with spatial-block CV (0.939 vs 0.934 here; the gap grows with stronger site effects).
-- **Classifier error attenuates effects.** Error in mapped cover biases every effect toward
-  zero, and conditioning on the other cover fractions makes it worse. Regression calibration using
-  the map-error variance fixes most of it, but soil moisture is still about 15% attenuated. This is
-  a known open issue to resolve before the real-data phase.
-- **Targeting pays.** Restoring the same eucalyptus area in cells chosen by the model-based
-  priority score cuts expected burned area by more than random restoration. The causal-model
-  projection lands within about a third of the simulated restoration effects.
+- **Two biases hid inside "causal ML", and both are now fixed:**
+  - Tree-only nuisance models approximate near-linear relationships in steps, which cost about
+    17% of the soil-moisture effect even with perfect maps. The default nuisance learner is now
+    ridge plus boosted residuals.
+  - Map error in *every* cover fraction attenuates the effects. A single-variance correction
+    over-corrects, while SIMEX recovers the truth: soil moisture −0.058 vs −0.06, severity 127
+    vs 120.
+- **The effect is heterogeneous.** Eucalyptus raises fire probability most in the interior and
+  under high fire weather. The group effects rank the same way as the truth, but the low-risk
+  groups (coast, low fire weather) are overestimated by roughly 2× and shrink toward the pooled
+  average. Treat them as a ranking, not as calibrated local effects.
+- **The fire-occurrence effect is fragile to hidden confounding.** An unmapped confounder
+  explaining about 1% of the residual variance of both cover and fire would erase it. Severity
+  and soil moisture need about 10% and 17%. On real data this is the table to read before any
+  causal claim about fire frequency.
+- **Targeting pays, and the static projection overstates it.** Restoring the same eucalyptus area
+  in model-prioritised cells cuts expected burned area more than random restoration, and the
+  causal-model projection ranks them correctly. It overstates the size of the benefit (about 1.5 to
+  1.9×) because it holds restored stands fixed, while in the simulation they burn and revert to
+  shrub. Next step: a dynamic projection that feeds the fitted conversion and fire models forward.
 
 ## Layout
 
@@ -72,10 +88,11 @@ src/eucalyptus_impact/
   data/catalog.py        real data source catalogue (Sentinel-2, MFE, IFN, EFFIS, FIRMS, gauges, ...)
   data/sources.py        real-data ingestion adapters (STAC, rasterisation, FIRMS API, gauges)
   data/synthetic.py      synthetic landscape with known effects
-  geo/                   UTM 29N grid, spatial blocks, raster neighbourhood ops
+  geo/                   UTM 29N grid, spatial blocks, raster ops, GeoTIFF export
   features/              spectral indices + harmonic features; cell-year / catchment-year panels
   models/                landcover, conversion, fire, hydrology
-  causal/                DML (partially linear, clustered SEs, ME correction), matching
+  causal/                DML (partially linear, clustered SEs), learners, matching,
+                         sensitivity (OVB bounds), SIMEX
   validation/            spatial block k-fold
   scenarios.py           policy projections and restoration prioritisation
   pipeline.py, reporting.py, cli.py
@@ -83,6 +100,9 @@ tests/                   unit tests per estimator + end-to-end run
 ```
 
 ## Next step: real data (milestone M2)
+
+The ingestion adapters are unit-tested against local fixtures (GeoPackage, GeoTIFF and CSV in
+the providers' layouts) but have not yet been run against the live endpoints.
 
 1. Build Sentinel-2 monthly index cubes with `sources.search_sentinel2` and
    `sentinel2_monthly_indices`. Label pixels from MFE polygons (`load_mfe_labels`) and keep IFN

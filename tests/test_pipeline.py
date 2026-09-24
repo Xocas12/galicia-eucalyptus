@@ -28,8 +28,22 @@ def test_end_to_end(tiny_cfg, tiny_land, tmp_path):
         "Random restoration",
     }
 
+    rob = res["robustness"]
+    assert set(rob["gate_region"]["group"]) == {"1 coast", "2 transition", "3 interior"}
+    assert (rob["sensitivity"]["rv_estimate"].between(0, 1)).all()
+    assert {"soil_moisture", "severity"} <= set(rob["simex"])
+
     path = write_report(res, tmp_path)
     assert path.exists()
-    for f in ("effects.png", "maps.png", "scenarios.png", "metrics.json", "effects.csv"):
+    for f in (
+        "effects.png",
+        "maps.png",
+        "scenarios.png",
+        "metrics.json",
+        "effects.csv",
+        "fire_gates.png",
+        "simex.png",
+        "restoration_priority.csv",
+    ):
         assert (tmp_path / f).exists()
     assert json.loads((tmp_path / "metrics.json").read_text())["land_cells"] == tiny_land.n

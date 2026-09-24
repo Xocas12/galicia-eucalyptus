@@ -21,6 +21,8 @@ class CausalConfig:
     n_folds: int = 5
     # Cell-year rows passed to DML; larger panels are subsampled for speed.
     max_rows: int = 250_000
+    # SIMEX map-error correction for the soil-moisture and severity effects (re-fits DML ~9 times).
+    simex: bool = True
 
 
 @dataclass

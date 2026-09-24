@@ -44,6 +44,8 @@ def build_cell_panel(land: Landscape) -> pd.DataFrame:
     )
     for k in STATIC_COVARIATES:
         df[k] = land.static[k][c_idx]
+    df["x"] = land.static["x"][c_idx]
+    df["y"] = land.static["y"][c_idx]
     df["log_pop"] = np.log(df["pop_density"])
     lag = land.cover_obs[t_idx - 1, c_idx]  # (rows, 6)
     for j, col in enumerate(COVER_COLS):

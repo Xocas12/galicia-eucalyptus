@@ -73,7 +73,7 @@ def fig_effects(tab: pd.DataFrame, path: Path):
         sub = tab[tab["effect"] == eff].reset_index(drop=True)
         for i, r in sub.iterrows():
             color = NAIVE if r["method"] == "OLS" else CAUSAL
-            if "ME-corrected" in r["method"]:
+            if "SIMEX" in r["method"] or "ME-corrected" in r["method"]:
                 color = "#1baf7a"
             se = r["se"] if np.isfinite(r["se"]) else 0
             ax.errorbar(
@@ -185,6 +185,74 @@ def fig_importance(imp: pd.DataFrame, path: Path):
     _save(fig, path)
 
 
+def fig_gates(gates: dict[str, pd.DataFrame], path: Path):
+    """Group effects with 95% CI (blue) and the group's true average effect (dark tick)."""
+    fig, axes = plt.subplots(1, len(gates), figsize=(5.5 * len(gates), 3), squeeze=False)
+    for ax, (title, g) in zip(axes[0], gates.items(), strict=True):
+        y = np.arange(len(g))
+        ax.errorbar(g["estimate"], y, xerr=1.96 * g["se"], fmt="o", color=CAUSAL, ms=6, lw=2)
+        if "truth" in g:
+            ax.scatter(g["truth"], y, marker="|", s=250, color=INK, lw=2, zorder=5, label="truth")
+            ax.legend(fontsize=8, loc="lower right")
+        ax.axvline(0, color=MUTED, lw=0.8)
+        ax.set_yticks(y, [str(v)[2:] for v in g["group"]])
+        ax.set_xlabel("dP(burn) / d eucalyptus share")
+        ax.set_title(title, loc="left")
+    fig.tight_layout()
+    _save(fig, path)
+
+
+def fig_simex(path_df: pd.DataFrame, path: Path):
+    effects = list(dict.fromkeys(path_df["effect"]))
+    fig, axes = plt.subplots(1, len(effects), figsize=(5 * len(effects), 3), squeeze=False)
+    for ax, eff in zip(axes[0], effects, strict=True):
+        p = path_df[path_df["effect"] == eff]
+        coef = np.polyfit(p["lambda"], p["estimate"], 2)
+        lam = np.linspace(-1, p["lambda"].max(), 50)
+        ax.plot(lam, np.polyval(coef, lam), color=MUTED, lw=1.5, ls="--")
+        ax.plot(p["lambda"], p["estimate"], "o", color=CAUSAL, ms=7)
+        ax.plot([-1], [np.polyval(coef, -1)], "o", color="#1baf7a", ms=8)
+        ax.annotate(
+            "extrapolated\n(no map error)",
+            (-1, np.polyval(coef, -1)),
+            xytext=(8, 0),
+            textcoords="offset points",
+            fontsize=7.5,
+            color=INK_2,
+            va="center",
+        )
+        ax.set_xlabel("added map-error variance (multiples of measured)")
+        ax.set_title(f"SIMEX: {eff}", loc="left")
+    fig.tight_layout()
+    _save(fig, path)
+
+
+def export_priority(land, scen: dict, out: Path):
+    """Restoration priority per cell as CSV, plus a 2-band GeoTIFF when rasterio is installed."""
+    df = pd.DataFrame(
+        {
+            "x": land.static["x"],
+            "y": land.static["y"],
+            "eucalyptus_share": land.cover_obs[-1, :, EUC],
+            "priority_score": scen["priority_score"],
+            "selected": scen["selected_targeted"].astype(int),
+        }
+    )
+    df.to_csv(out / "restoration_priority.csv", index=False)
+    try:
+        from .geo.io import write_geotiff
+
+        stack = np.stack(
+            [
+                land.to_2d(scen["priority_score"]),
+                land.to_2d(scen["selected_targeted"].astype(float)),
+            ]
+        )
+        write_geotiff(stack, land.grid, out / "restoration_priority.tif")
+    except ImportError:
+        pass
+
+
 def fig_scenarios(traj: pd.DataFrame, path: Path):
     fig, axes = plt.subplots(1, 2, figsize=(12, 3.8))
     for ax, col, lab in (
@@ -230,6 +298,44 @@ def _md_table(df: pd.DataFrame, nd=4) -> str:
     return "\n".join(lines)
 
 
+def _robustness_md(rob: dict) -> str:
+    if not rob:
+        return ""
+    parts = [
+        "## 4b. Robustness",
+        "",
+        "**Where does eucalyptus raise fire risk?** Group effects from the same DML fit:",
+        "",
+        _md_table(rob["gate_region"]),
+        "",
+        _md_table(rob["gate_fwi"]),
+        "",
+        "![gates](fire_gates.png)",
+        "",
+        "**Unobserved confounding.** `rv_estimate` is the partial R² an unmapped confounder would",
+        "need with *both* treatment and outcome to explain the whole estimate away; `rv_ci` makes",
+        "the 95% CI reach zero. `max_bias` is the largest shift a confounder of the given strength",
+        "could cause.",
+        "",
+        _md_table(rob["sensitivity"]),
+    ]
+    if "se_by_block" in rob:
+        parts += [
+            "",
+            "**Spatial clustering.** Fire-occurrence SE by cluster size (km):",
+            "",
+            _md_table(rob["se_by_block"]),
+        ]
+    if "simex" in rob:
+        parts += [
+            "",
+            "**SIMEX.** Map error in *all* cover fractions, extrapolated to zero:",
+            "",
+            "![simex](simex.png)",
+        ]
+    return "\n".join(parts)
+
+
 def write_report(res: dict, out_dir: str | Path) -> Path:
     from .pipeline import effect_table
 
@@ -258,6 +364,15 @@ def write_report(res: dict, out_dir: str | Path) -> Path:
     lc["change"].to_csv(out / "area_change.csv", index=False)
     scen["trajectories"].to_csv(out / "scenario_trajectories.csv", index=False)
     scen["contrasts"].to_csv(out / "scenario_contrasts.csv", index=False)
+    export_priority(land, scen, out)
+    rob = res.get("robustness", {})
+    if rob:
+        fig_gates(
+            {"By region (continentality)": rob["gate_region"], "By fire weather": rob["gate_fwi"]},
+            out / "fire_gates.png",
+        )
+        if "simex_path" in rob:
+            fig_simex(rob["simex_path"], out / "simex.png")
     res["loss_attribution"].to_csv(out / "loss_attribution.csv", index=False)
 
     clf = lc["classifier"]
@@ -276,6 +391,9 @@ def write_report(res: dict, out_dir: str | Path) -> Path:
         "budyko_params": water["budyko_params"],
         "matching_dropped_share": water["matching_balance"].attrs.get("dropped_share"),
         "effects": tab.to_dict(orient="records"),
+        "sensitivity": res.get("robustness", {})
+        .get("sensitivity", pd.DataFrame())
+        .to_dict(orient="records"),
     }
     (out / "metrics.json").write_text(json.dumps(metrics, indent=2, default=float))
 
@@ -284,6 +402,7 @@ def write_report(res: dict, out_dir: str | Path) -> Path:
     euc1 = land.cover[-1, :, EUC].sum() * ha
     eff_short = tab[["effect", "method", "estimate", "se", "truth", "covers_truth"]]
     bal = water["matching_balance"]
+    robustness_md = _robustness_md(rob)
     md = f"""# Galicia eucalyptus impact: pipeline report
 
 > **SYNTHETIC DATA.** Every number below comes from the simulated landscape in
@@ -306,8 +425,11 @@ column partials out climate, terrain, human pressure and the other cover types.
 
 Map-error variance of the eucalyptus fraction (from the reference sample):
 {res.get("map_error_var", float("nan")):.5f}. Classifier error in the *treatment* attenuates every
-effect towards zero, and partialling out the other cover fractions makes it worse (it removes
-signal but not noise). The ME-corrected rows apply regression calibration.
+effect towards zero, and every cover fraction carries error, controls included. The SIMEX rows
+correct for this by adding extra simulated map error, tracing how the estimate degrades, and
+extrapolating back to zero error (section 4b). A simpler single-variance regression calibration
+over-corrects here, because part of the treatment's map noise is predictable from the other
+fractions' noise.
 
 Fire-occurrence effect of each cover class vs the agriculture/other reference (used to price
 scenarios; truth on the logit scale: eucalyptus {land.truth.fire_euc}, pine {land.truth.fire_pine},
@@ -354,6 +476,8 @@ Matching balance (share of treated dropped for lack of overlap:
 {bal.attrs.get("dropped_share", float("nan")):.2f}):
 
 {_md_table(bal)}
+
+{robustness_md}
 
 ## 5. Policy scenarios to {res["config"].scenarios.horizon}
 
