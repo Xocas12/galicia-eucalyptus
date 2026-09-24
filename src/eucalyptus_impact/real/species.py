@@ -83,6 +83,28 @@ def sample_training(lab: np.ndarray, per_class: int, seed: int):
     return np.concatenate(rows), np.concatenate(cols), np.concatenate(ys)
 
 
+class DropEmptyColumns:
+    """Classifier wrapper that drops feature columns with no finite value in training.
+
+    The 2017 window has no imagery for October 2016 (the L2A archive starts in November), so
+    those monthly columns are all missing and gradient boosting cannot bin them.
+    """
+
+    def __init__(self, model):
+        self.model = model
+
+    def fit(self, X, y):
+        self.keep_ = np.isfinite(X).any(axis=0)
+        self.model.fit(X[:, self.keep_], y)
+        return self
+
+    def predict(self, X):
+        return self.model.predict(X[:, self.keep_])
+
+    def predict_proba(self, X):
+        return self.model.predict_proba(X[:, self.keep_])
+
+
 def make_classifier(seed=0):
     return HistGradientBoostingClassifier(
         max_iter=300,
