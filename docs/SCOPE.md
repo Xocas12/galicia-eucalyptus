@@ -15,7 +15,8 @@ The answers feed a **policy layer**: projections of fire and water outcomes unde
 plans (business as usual, an area cap or moratorium, targeted native restoration) and a
 data-driven map of where restoration buys the most risk reduction.
 
-> **Status: no real-data result exists yet.** Every number the pipeline currently produces comes
+> **Status: no real-data result exists yet.** The latest synthetic validation run is in
+> [`synthetic_validation/report.md`](synthetic_validation/report.md). Every number the pipeline currently produces comes
 > from a *synthetic* Galicia-like landscape whose causal effects are set by hand in
 > `configs/*.yaml` / `data/synthetic.py`. Its purpose is to prove that the estimators recover known
 > effects before they are pointed at real data. Do not cite any synthetic output as a finding
@@ -134,6 +135,20 @@ has the ingestion adapters. The adapters are written but **have not been run fro
 2. **Spatial CV** for every predictive model.
 3. **Independent reference data** (IFN plots) for map accuracy in the real-data phase.
 4. **Falsification tests:** placebo timing and negative-control outcomes.
+
+### What the simulator has already taught us
+
+- Confounding is strong enough to flip signs: naive fire and runoff associations have the wrong
+  sign, and the causal estimators recover the planted effects.
+- Differencing two maps roughly doubles the apparent conversion area. Stratified estimation
+  is mandatory.
+- Map error in the treatment attenuates DML estimates, and conditioning on the other (also noisy)
+  cover fractions amplifies it. Regression calibration with the map-error variance removes most
+  but not all of it (about 15% residual on soil moisture). **Open item before M3:** propagate
+  full classifier uncertainty (posterior class probabilities, or SIMEX) instead of a
+  single-variance correction.
+- Small scenario contrasts (the cap) are within simulation noise. Only the large ones
+  (restoration) are resolved.
 
 ## 6. Threats to validity
 
