@@ -79,6 +79,20 @@ def cell_frame(L: dict, maps: dict) -> pd.DataFrame:
         df[c] = frac17[j][keep]
         df[c + "_end"] = frac24[j][keep]
     df["neigh_euc"] = focal_mean(np.nan_to_num(frac17[EUC]), 3, mask=keep)[keep]
+    # Gross conversion 2017 -> 2024: share of confidently mapped non-eucalyptus 40 m pixels that
+    # are confidently eucalyptus in 2024. Net change would count burned eucalyptus canopy
+    # (mapped as shrub afterwards) as negative "gain".
+    a, b = maps["class40_2017"], maps["class40_2024"]
+    conf = (maps["pmax40_2017"] >= 70) & (maps["pmax40_2024"] >= 70) & (a < 255) & (b < 255)
+    base = conf & (a != EUC)
+    gain = base & (b == EUC)
+    from .common import block_to_1km
+
+    n_base = block_to_1km(base.astype("float32"), "sum")
+    n_gain = block_to_1km(gain.astype("float32"), "sum")
+    with np.errstate(invalid="ignore", divide="ignore"):
+        df["gross_gain"] = np.where(n_base > 0, n_gain / n_base, np.nan)[keep]
+    df["n_base_px"] = n_base[keep]
     e = L["effis"]
     df["burned_share"] = sum(np.nan_to_num(e[f"burned_{yr}"]) for yr in FIRE_YEARS)[keep]
     df["burned_2018_2021"] = sum(np.nan_to_num(e[f"burned_{yr}"]) for yr in range(2018, 2022))[keep]
@@ -240,33 +254,38 @@ def conversion_analysis(cells: pd.DataFrame, maps: dict, L: dict, n_folds=5, see
     }
     # Tree-cover loss 2018-2024 attributed at 40 m.
     fire = loss & burned
-    rot = loss & ~burned & (a == EUC) & (b != NATIVE) & (b != PINE)
     conv = loss & ~burned & np.isin(a, [NATIVE, PINE]) & (b == EUC)
-    other = loss & ~(fire | rot | conv)
+    # Plantation harvest: eucalyptus or pine felled and not converted to another tree crop.
+    rot = loss & ~burned & ~conv & np.isin(a, [EUC, PINE]) & (b != NATIVE)
+    native_loss = loss & ~burned & ~conv & (a == NATIVE)
+    other = loss & ~(fire | rot | conv | native_loss)
     out["loss_attribution"] = pd.DataFrame(
         {
-            "driver": ["fire", "rotation", "conversion", "unattributed"],
-            "attributed": [float(m.sum() * PIXEL_HA) for m in (fire, rot, conv, other)],
+            "driver": ["fire", "rotation", "conversion", "native_loss", "unattributed"],
+            "attributed": [
+                float(m.sum() * PIXEL_HA) for m in (fire, rot, conv, native_loss, other)
+            ],
         }
     )
     out["loss_attribution"]["attributed_share"] = (
         out["loss_attribution"]["attributed"] / out["loss_attribution"]["attributed"].sum()
     )
-    # Fire -> plantation: does burning in 2018-2021 raise eucalyptus gain by 2024?
-    y = (cells["f_eucalyptus_end"] - cells["f_eucalyptus"]) / np.clip(
-        1 - cells["f_eucalyptus"], 1e-3, None
-    )
-    X = cells[[*STATIC, *COVER[1:5], "neigh_euc"]].to_numpy()
-    d = cells["burned_2018_2021"].to_numpy()
+    # Fire -> plantation: does burning in 2018-2021 raise gross conversion to eucalyptus by
+    # 2024? (Gross conversion, not net change: burned eucalyptus canopy mapped as shrub in 2024
+    # would otherwise count as negative gain.)
+    cs = cells[cells["gross_gain"].notna() & (cells["n_base_px"] >= 50)]
+    y = cs["gross_gain"]
+    X = cs[[*STATIC, *COVER[1:5], "neigh_euc"]].to_numpy()
+    d = cs["burned_2018_2021"].to_numpy()
     out["fire_conversion_dml"] = dml_plr(
-        y, d, X, cells["block"], n_folds, seed, name="burned share 2018-2021 -> eucalyptus gain"
+        y, d, X, cs["block"], n_folds, seed, name="burned share 2018-2021 -> eucalyptus gain"
     )
     out["fire_conversion_naive"] = ols(
-        y, d, cells["block"], name="burned share 2018-2021 -> eucalyptus gain"
+        y, d, cs["block"], name="burned share 2018-2021 -> eucalyptus gain"
     )
     feats = [*STATIC, *COVER[1:5], "neigh_euc", "burned_2018_2021"]
-    m = HistGradientBoostingRegressor(max_iter=200, random_state=seed).fit(cells[feats], y)
-    sub = cells.sample(min(8000, len(cells)), random_state=seed)
+    m = HistGradientBoostingRegressor(max_iter=200, random_state=seed).fit(cs[feats], y)
+    sub = cs.sample(min(8000, len(cs)), random_state=seed)
     ysub = y.loc[sub.index]
     imp = permutation_importance(m, sub[feats], ysub, n_repeats=5, random_state=seed)
     out["drivers"] = (
@@ -303,6 +322,15 @@ def projections(
         weather,
         seed=seed,
     )
+    # Calibrate the planting rate to the observed gross conversion between confidently mapped
+    # pixels. The model is fitted to noisy per-cell net changes, and clipping its predictions at
+    # zero turns noise into spurious growth.
+    ok = cells["gross_gain"].notna() & (cells["n_base_px"] >= 50)
+    target = float(cells.loc[ok, "gross_gain"].mean()) / 7
+    raw_mean = float(comp.conv_rate.mean())
+    comp.conv_rate = comp.conv_rate * (target / max(raw_mean, 1e-12))
+    comp.diagnostics["conv_rate_raw_mean"] = raw_mean
+    comp.diagnostics["conv_rate_target"] = target
     f0 = cells[[c + "_end" for c in COVER]].to_numpy()
     euc = f0[:, EUC]
     score = susc["p_base"] * euc

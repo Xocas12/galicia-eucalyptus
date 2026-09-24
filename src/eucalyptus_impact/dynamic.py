@@ -186,34 +186,50 @@ def project(
                 }
             )
     df = pd.DataFrame(rows)
+    # Per-simulation totals. Every policy draws the same random numbers in the same order (same
+    # seed, same number of draws per year), so simulation s of two policies shares its weather
+    # and parameter draws, and per-simulation differences give contrast uncertainty bands.
+    per_sim = df.groupby("sim").agg(
+        mean_burned=("expected_burned_ha", "mean"),
+        final_euc=("eucalyptus_ha", "last"),
+        final_native=("native_ha", "last"),
+    )
     g = df.groupby("year")
     out = g.mean(numeric_only=True).drop(columns="sim")
     for col in ("expected_burned_ha", "eucalyptus_ha", "native_ha"):
         out[col + "_p05"] = g[col].quantile(0.05)
         out[col + "_p95"] = g[col].quantile(0.95)
     out["cum_burned_ha"] = out["expected_burned_ha"].cumsum()
-    return out.reset_index()
+    out = out.reset_index()
+    out.attrs["per_sim"] = per_sim
+    out.attrs["sim_year_burned"] = df.pivot(
+        index="sim", columns="year", values="expected_burned_ha"
+    )
+    return out
 
 
 def scenario_contrasts(trajs: dict[str, pd.DataFrame]) -> pd.DataFrame:
-    """Scenario minus BAU: eucalyptus and native area at the horizon, mean yearly burned area
-    over the whole projection, and cumulative burned area."""
+    """Scenario minus BAU: eucalyptus and native area at the horizon, and mean yearly burned
+    area over the projection, with 5-95% bands from paired simulations."""
     base = trajs["BAU"]
     rows = []
     for name, tr in trajs.items():
         if name == "BAU":
             continue
-        rows.append(
-            {
-                "scenario": name,
-                "d_eucalyptus_ha": tr["eucalyptus_ha"].iloc[-1] - base["eucalyptus_ha"].iloc[-1],
-                "d_native_ha": tr["native_ha"].iloc[-1] - base["native_ha"].iloc[-1],
-                "d_burned_ha_per_year": (
-                    tr["expected_burned_ha"].mean() - base["expected_burned_ha"].mean()
-                ),
-                "d_cum_burned_ha": tr["cum_burned_ha"].iloc[-1] - base["cum_burned_ha"].iloc[-1],
-            }
-        )
+        row = {
+            "scenario": name,
+            "d_eucalyptus_ha": tr["eucalyptus_ha"].iloc[-1] - base["eucalyptus_ha"].iloc[-1],
+            "d_native_ha": tr["native_ha"].iloc[-1] - base["native_ha"].iloc[-1],
+            "d_burned_ha_per_year": (
+                tr["expected_burned_ha"].mean() - base["expected_burned_ha"].mean()
+            ),
+        }
+        a, b = tr.attrs.get("per_sim"), base.attrs.get("per_sim")
+        if a is not None and b is not None:
+            d = a["mean_burned"] - b["mean_burned"]
+            row["d_burned_p05"] = float(d.quantile(0.05))
+            row["d_burned_p95"] = float(d.quantile(0.95))
+        rows.append(row)
     return pd.DataFrame(rows)
 
 

@@ -174,7 +174,8 @@ def _effis_year(year: int):
     sev = np.where(arr > 0, arr, np.nan).astype("float32")
     return {
         f"burned_{year}": reproject_to(burned, tr, crs, GRID_1KM),
-        f"severity_{year}": reproject_to(sev, tr, crs, GRID_1KM, "average"),
+        # NaN must be declared as nodata, or any partly burned cell averages to NaN.
+        f"severity_{year}": reproject_to(sev, tr, crs, GRID_1KM, "average", src_nodata=np.nan),
         f"burned40_{year}": np.nan_to_num(reproject_to(burned, tr, crs, GRID_40M)) > 0.5,
         f"values_{year}": np.unique(arr),
     }

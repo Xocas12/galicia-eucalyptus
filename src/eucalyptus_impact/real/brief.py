@@ -39,6 +39,7 @@ GL.update(
         "native_broadleaf -> P(burn)": "frondosas autóctonas → P(queima)",
         "shrub -> P(burn)": "mato → P(queima)",
         "unattributed": "sen atribuír",
+        "native_loss": "perda de frondosas sen conversión",
         "dist_sea_km": "distancia ao mar (km)",
         "x_km": "coordenada leste (km)",
         "y_km": "coordenada norte (km)",
@@ -149,23 +150,37 @@ def _fig_effects(rows: list, path: Path):
 
 
 def _fig_projections(trajs: dict, path: Path):
-    fig, axes = plt.subplots(1, 2, figsize=(12, 3.8))
-    for ax, col, lab in (
-        (axes[0], "eucalyptus_ha", "Superficie de eucalipto (miles de ha)"),
-        (axes[1], "expected_burned_ha", "Superficie queimada esperada (miles de ha/ano)"),
-    ):
-        for color, (name, t) in zip(SERIES, trajs.items(), strict=False):
-            ax.plot(t["year"], t[col] / 1e3, color=color, lw=2, label=tr(name))
-            lo, hi = t.get(col + "_p05"), t.get(col + "_p95")
-            if lo is not None:
-                ax.fill_between(t["year"], lo / 1e3, hi / 1e3, color=color, alpha=0.12, lw=0)
-        ax.set_title(lab, loc="left")
-        from matplotlib.ticker import FuncFormatter, MaxNLocator
+    """Left: eucalyptus area per scenario. Right: burned area minus business as usual, per year,
+    with 5-95% bands from paired simulations (same weather and parameter draws)."""
+    from matplotlib.ticker import FuncFormatter, MaxNLocator
 
+    fig, axes = plt.subplots(1, 2, figsize=(12, 3.8))
+    for color, (name, t) in zip(SERIES, trajs.items(), strict=False):
+        axes[0].plot(t["year"], t["eucalyptus_ha"] / 1e3, color=color, lw=2, label=tr(name))
+    axes[0].set_title("Superficie de eucalipto (miles de ha)", loc="left")
+    axes[0].legend(fontsize=8, loc="best")
+    base = trajs["BAU"].attrs["sim_year_burned"]
+    years = trajs["BAU"]["year"].to_numpy()
+    for color, (name, t) in list(zip(SERIES, trajs.items(), strict=False))[1:]:
+        d = t.attrs["sim_year_burned"] - base
+        axes[1].plot(years, d.mean(axis=0).to_numpy(), color=color, lw=2, label=tr(name))
+        axes[1].fill_between(
+            years,
+            d.quantile(0.05).to_numpy(),
+            d.quantile(0.95).to_numpy(),
+            color=color,
+            alpha=0.15,
+            lw=0,
+        )
+    axes[1].axhline(0, color=MUTED, lw=1)
+    axes[1].set_title("Queimado fronte á tendencia (ha/ano), bandas 5–95 %", loc="left")
+    axes[1].legend(fontsize=8, loc="best")
+    for ax in axes:
         ax.xaxis.set_major_locator(MaxNLocator(integer=True))
         ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:.0f}"))
-    axes[0].legend(fontsize=8, loc="best")
     _gl_ticks(fig)
+    for ax in axes:
+        ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:.0f}"))
     _save(fig, path)
 
 
@@ -206,6 +221,96 @@ SOURCES = pd.DataFrame(
 )
 
 
+def _sig(e) -> bool:
+    """Whether the 95% CI of an estimate excludes zero."""
+    return abs(e.estimate) > 1.96 * e.se
+
+
+def _resumo(res: dict) -> str:
+    fire, conv, proj = res["fire"], res["conversion"], res["projections"]
+    areas, susc = res["areas"], res["susceptibility"]
+    a17 = areas["2017"].set_index("name").loc["eucalyptus"]
+    a24 = areas["2024"].set_index("name").loc["eucalyptus"]
+    nat = conv["native_to_euc_ha"]
+    occ, shrub = fire["occurrence_dml"], fire["cover_effects"]["f_shrub"]
+    sev, fc = fire["severity_dml"], conv["fire_conversion_dml"]
+    rv = fire["sensitivity"].iloc[0]
+    contr = proj["contrasts"].set_index("scenario")
+    items = []
+    items.append(
+        f"- **Superficie de eucalipto (mapa).** {num(a24['map_area_ha'] / 1e3, 3)} mil ha en 2024 "
+        f"e {num(a17['map_area_ha'] / 1e3, 3)} mil ha en 2017 (reconto de píxeles; "
+        f"{num(a24['soft_area_ha'] / 1e3, 3)} mil ha en 2024 sumando probabilidades). **Estas "
+        "cifras non están validadas** co inventario oficial e quedan claramente por debaixo das "
+        "superficies de eucalipto publicadas para Galicia, polo que é probable que o mapa "
+        "infraestime o eucalipto (sección 2). Non se deben citar como superficie oficial."
+    )
+    items.append(
+        f"- **Substitución de bosque autóctono.** Entre 2017 e 2024, {num(nat['confident'])} ha "
+        "pasaron de frondosas autóctonas a eucalipto en píxeles clasificados con fiabilidade nos "
+        f"dous anos; {num(nat['confident_with_loss_or_fire'])} ha diso coinciden ademais cunha "
+        "perda de cuberta arbórea (Hansen) ou cun incendio (EFFIS). Esta última é a cifra máis "
+        "prudente; a diferenza entre mapas tende a sobreestimar o cambio."
+    )
+    if _sig(occ):
+        occ_txt = (
+            f"un aumento de 10 puntos na fracción de eucalipto cambia a probabilidade anual de "
+            f"queima en {num(occ.estimate * 10, 2)} puntos porcentuais "
+            f"(IC 95 %: {num((occ.estimate - 1.96 * occ.se) * 10, 2)} a "
+            f"{num((occ.estimate + 1.96 * occ.se) * 10, 2)})"
+        )
+    else:
+        occ_txt = (
+            "**non se detecta un efecto do eucalipto** sobre a probabilidade anual de queima "
+            "distinguible de cero, fronte a agricultura e outros usos: por cada 10 puntos de "
+            f"eucalipto, {num(occ.estimate * 10, 2)} puntos porcentuais (IC 95 %: "
+            f"{num((occ.estimate - 1.96 * occ.se) * 10, 2)} a "
+            f"{num((occ.estimate + 1.96 * occ.se) * 10, 2)}), cunha taxa base de "
+            f"{num(susc['base_rate'] * 100, 2)} % ao ano"
+        )
+    shrub_txt = (
+        f"O mato si aumenta o risco: {num(shrub.estimate * 10, 2)} puntos porcentuais por cada "
+        f"10 puntos de mato (IC 95 %: {num((shrub.estimate - 1.96 * shrub.se) * 10, 2)} a "
+        f"{num((shrub.estimate + 1.96 * shrub.se) * 10, 2)})."
+        if _sig(shrub)
+        else "Tampouco o mato mostra un efecto distinguible de cero."
+    )
+    rv_txt = (
+        f" O valor de robustez é {num(rv['rv_estimate'], 2)}: un factor de confusión non medido "
+        "con ese R² parcial co tratamento e co resultado anularía a estimación."
+        if _sig(occ)
+        else ""
+    )
+    items.append(
+        f"- **Incendios, 2018–2023.** Mantendo constantes o relevo, a localización, a presión "
+        f"humana, a meteoroloxía e as demais cubertas, {occ_txt}. {shrub_txt}{rv_txt}"
+    )
+    sev_txt = "distinguible de cero" if _sig(sev) else "non distinguible de cero"
+    items.append(
+        f"- **Severidade.** Entre as celas queimadas, o efecto do eucalipto sobre a clase de "
+        f"severidade EFFIS é {num(sev.estimate, 2)} por unidade de fracción (EE "
+        f"{num(sev.se, 2)}; {sev_txt}; n = {num(sev.n)})."
+    )
+    fc_txt = f"{num(fc.estimate, 2)} (EE {num(fc.se, 2)})" + (
+        ", distinguible de cero" if _sig(fc) else ", non distinguible de cero"
+    )
+    items.append(
+        f"- **Do lume á plantación.** Efecto da fracción queimada en 2018–2021 sobre a "
+        f"conversión bruta a eucalipto en 2024: {fc_txt}."
+    )
+    t, r = contr.loc["Targeted restoration"], contr.loc["Random restoration"]
+    items.append(
+        "- **Proxeccións a 2040.** Restaurar o 25 % do eucalipto cambia a superficie queimada "
+        f"media en {num(t['d_burned_ha_per_year'])} ha/ano se se fai nas celas prioritarias "
+        f"(banda 5–95 %: {num(t['d_burned_p05'])} a {num(t['d_burned_p95'])}) e en "
+        f"{num(r['d_burned_ha_per_year'])} ha/ano se se fai ao chou (banda "
+        f"{num(r['d_burned_p05'])} a {num(r['d_burned_p95'])}). Como os efectos das cubertas "
+        "sobre o lume non son distinguibles de cero, as proxeccións non permiten afirmar que "
+        "restaurar reduza os incendios; tampouco que os aumente."
+    )
+    return "\n".join(items)
+
+
 def write_brief(res: dict, out_dir: str | Path) -> Path:
     _style()
     out = Path(out_dir)
@@ -241,13 +346,7 @@ def write_brief(res: dict, out_dir: str | Path) -> Path:
     )
     _fig_projections(proj["trajectories"], out / "proxeccions.png")
 
-    a17, a24 = areas["2017"], areas["2024"]
-    euc17 = a17.loc[a17["name"] == "eucalyptus"].iloc[0]
-    euc24 = a24.loc[a24["name"] == "eucalyptus"].iloc[0]
     nat = conv["native_to_euc_ha"]
-    occ = fire["occurrence_dml"]
-    rv = fire["sensitivity"].iloc[0]
-    contr = proj["contrasts"].set_index("scenario")
     area_cols = [
         "name",
         "map_area_ha",
@@ -286,6 +385,7 @@ def write_brief(res: dict, out_dir: str | Path) -> Path:
     ps = res["panel_summary"]
     s17, s24 = sm["2017"], sm["2024"]
 
+    resumo = _resumo(res)
     md = f"""# Eucalipto en Galicia: informe con datos reais
 
 > **Que é este informe.** Unha estimación con datos de satélite e rexistros públicos do
@@ -297,26 +397,7 @@ def write_brief(res: dict, out_dir: str | Path) -> Path:
 
 ## Resumo
 
-- **Superficie de eucalipto.** O mapa de 2024 clasifica como eucalipto
-  {num(euc24["map_area_ha"] / 1e3, 3)} mil ha, e a estimación corrixida polo erro do mapa é de
-  {num(euc24["est_area_ha"] / 1e3, 3)} mil ha (± {num(euc24["ci95_ha"] / 1e3, 3)} mil ha). En 2017
-  eran {num(euc17["est_area_ha"] / 1e3, 3)} mil ha (± {num(euc17["ci95_ha"] / 1e3, 3)} mil ha).
-- **Substitución de bosque autóctono.** Entre 2017 e 2024, {num(nat["confident"], 3)} ha
-  pasaron de frondosas autóctonas a eucalipto nos píxeles clasificados con fiabilidade nos
-  dous anos, e {num(nat["confident_with_loss_or_fire"], 3)} ha diso coinciden cunha perda de
-  cuberta arbórea (Hansen) ou cun incendio (EFFIS), o que corrobora o cambio.
-- **Incendios.** Un aumento de 10 puntos na fracción de eucalipto dunha cela de 1 km cambia a
-  probabilidade anual de que arda (≥ 1 % da cela) en {num(occ.estimate * 0.1 * 100, 2)} puntos
-  porcentuais (IC 95 %: {num((occ.estimate - 1.96 * occ.se) * 10, 2)} a
-  {num((occ.estimate + 1.96 * occ.se) * 10, 2)}), mantendo constantes o relevo, a localización,
-  a presión humana, a meteoroloxía e as demais cubertas. A taxa base é
-  {num(susc["base_rate"] * 100, 2)} % ao ano. O valor de robustez é
-  {num(rv["rv_estimate"], 2)}: un factor de confusión non observado que explicase ese R² parcial
-  do tratamento e do resultado anularía a estimación.
-- **Proxeccións a 2040.** Fronte á tendencia actual, restaurar o 25 % da superficie de
-  eucalipto nas celas prioritarias cambia a superficie queimada media en
-  {num(contr.loc["Targeted restoration", "d_burned_ha_per_year"], 3)} ha/ano, e facelo ao
-  chou en {num(contr.loc["Random restoration", "d_burned_ha_per_year"], 3)} ha/ano.
+{resumo}
 
 ## 1. Datos empregados
 
@@ -335,11 +416,19 @@ de NDVI, NDMI e NBR). Exactitude en validación cruzada por bloques espaciais de
 (2024). Kappa {num(s17["kappa"], 3)} e {num(s24["kappa"], 3)}. A exactitude mide o acordo coas
 etiquetas de OpenStreetMap, que non son unha mostra aleatoria.
 
-Superficies en 2024:
+Superficies. A columna «superficie estimada» corrixe o mapa invertindo a matriz de confusión
+das etiquetas de OpenStreetMap. Esa corrección só é fiable se as etiquetas son puras: se algúns
+polígonos etiquetados como frondosas autóctonas conteñen eucalipto, a inversión resta
+eucalipto de máis. Aquí reduce o eucalipto a unha fracción do mapa e dá un descenso entre 2017
+e 2024 que o propio mapa non mostra, sinal de que as etiquetas non son abondo puras. **Tómese
+como unha comprobación fráxil, non como estimación.** A exactitude do usuario do eucalipto
+(a probabilidade de que un píxel mapeado como eucalipto o sexa) é a cifra máis débil do mapa.
+
+2024:
 
 {_md_table(areas["2024"][area_cols], 5, values=("name",))}
 
-Superficies en 2017:
+2017:
 
 {_md_table(areas["2017"][area_cols], 5, values=("name",))}
 
@@ -391,8 +480,10 @@ Modelo de susceptibilidade: AUC en validación cruzada espacial {num(susc["auc"]
 
 Motor dinámico: cada ano sortéase o lume segundo a susceptibilidade de cada cela e os efectos
 causais estimados de cada cuberta; o lume converte parte das frondosas e dos piñeirais en mato;
-e a plantación de eucalipto segue a taxa observada en 2017–2024, reforzada polos incendios
-recentes. O modelo validouse na paisaxe sintética, onde sobreestimou os beneficios da
+e a plantación de eucalipto segue a taxa de conversión bruta observada en 2017–2024 entre
+píxeles fiables ({num(proj["components"].diagnostics["conv_rate_target"] * 100, 2)} % ao ano da
+superficie sen eucalipto), reforzada polos incendios recentes. O motor non inclúe perdas de
+eucalipto agás a restauración, así que o crecemento no escenario tendencial é un límite superior. O modelo validouse na paisaxe sintética, onde sobreestimou os beneficios da
 restauración nun 25–35 %. As bandas son os percentís 5 e 95 de 40 simulacións que combinan a
 variabilidade meteorolóxica e a incerteza dos efectos.
 

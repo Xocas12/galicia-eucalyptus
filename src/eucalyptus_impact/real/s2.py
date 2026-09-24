@@ -55,7 +55,9 @@ def band_scale_offset(meta: dict) -> tuple[dict, dict]:
     return sc, of
 
 
-def list_scenes(tile: str, year: int, month: int, max_scenes: int = 3, max_cloud: float = 80):
+def list_scenes(
+    tile: str, year: int, month: int, max_scenes: int | None = 3, max_cloud: float = 80
+):
     zone, band, sq = tile[:2], tile[2], tile[3:]
     prefixes = s3_prefixes(BUCKET, f"sentinel-s2-l2a-cogs/{zone}/{band}/{sq}/{year}/{month}/")
     scenes = []
@@ -71,7 +73,37 @@ def list_scenes(tile: str, year: int, month: int, max_scenes: int = 3, max_cloud
         sc, of = band_scale_offset(meta)
         scenes.append(Scene(p, cc, sc, of))
     scenes.sort(key=lambda s: s.cloud)
-    return scenes[:max_scenes]
+    return scenes if max_scenes is None else scenes[:max_scenes]
+
+
+def scene_date(scene: Scene) -> str:
+    return scene.prefix.rstrip("/").rsplit("/", 1)[-1].split("_")[2]
+
+
+def select_month_scenes(year: int, month: int, n_dates: int = 4, fallback: int = 2):
+    """Scenes per tile for one month, using the same acquisition dates across tiles.
+
+    Picking each tile's own least-cloudy scenes composites neighbouring tiles from different
+    dates, which leaves visible tile seams that the classifier learns. Instead, dates are ranked
+    by mean cloud cover over the tiles they cover (dates covering fewer than half the tiles are
+    skipped), the best `n_dates` are used everywhere, and a tile with no scene on those dates
+    falls back to its own `fallback` least-cloudy scenes.
+    """
+    per_tile = {t: list_scenes(t, year, month, max_scenes=None) for t in TILES}
+    by_date: dict[str, list[float]] = {}
+    for scenes in per_tile.values():
+        for sc in scenes:
+            by_date.setdefault(scene_date(sc), []).append(sc.cloud)
+    ranked = sorted(
+        (d for d, c in by_date.items() if len(c) >= len(TILES) / 2),
+        key=lambda d: np.mean(by_date[d]),
+    )
+    chosen = set(ranked[:n_dates])
+    out = {}
+    for t, scenes in per_tile.items():
+        picked = [sc for sc in scenes if scene_date(sc) in chosen]
+        out[t] = picked if picked else scenes[:fallback]
+    return out, sorted(chosen)
 
 
 ASSET_FILE = {
@@ -129,8 +161,7 @@ def scene_indices(scene: Scene):
     return out.astype("float16"), tr, crs
 
 
-def tile_month(tile: str, year: int, month: int):
-    scenes = list_scenes(tile, year, month)
+def tile_month(scenes: list[Scene]):
     if not scenes:
         return None
     stack, tr, crs = [], None, None
@@ -170,7 +201,8 @@ def build_period(period: str, threads: int = 4) -> np.memmap:
         acc = np.zeros((3, ny, nx), "float32")
         cnt = np.zeros((3, ny, nx), "uint8")
         with ThreadPoolExecutor(threads) as ex:
-            results = list(ex.map(lambda t, y=year, m=month: tile_month(t, y, m), TILES))
+            month_scenes, dates = select_month_scenes(year, month)
+            results = list(ex.map(tile_month, [month_scenes[t] for t in TILES]))
         n_sc = 0
         for res in results:
             if res is None:
@@ -198,11 +230,12 @@ def build_period(period: str, threads: int = 4) -> np.memmap:
         cube.flush()
         valid = np.isfinite(cube[mi, 0]).mean()
         log.info(
-            "S2 %s %d-%02d: %d scenes, %.0f%% valid, %.0fs",
+            "S2 %s %d-%02d: %d scenes (dates %s), %.0f%% valid, %.0fs",
             period,
             year,
             month,
             n_sc,
+            ",".join(dates),
             100 * valid,
             time.time() - t0,
         )

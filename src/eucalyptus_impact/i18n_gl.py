@@ -121,6 +121,8 @@ GL: dict[str, str] = {
     "d_runoff_mm_model": "Δ escorrentía modelo (mm)",
     "d_burned_ha_mean_simulated": "Δ queimado medio simulado (ha/ano)",
     "d_burned_ha_mean_dynamic": "Δ queimado medio dinámico (ha/ano)",
+    "d_burned_p05": "percentil 5",
+    "d_burned_p95": "percentil 95",
     "cover": "cuberta",
     "dP(burn)/dshare": "dP(queima)/dfracción",
     "parameter": "parámetro",
@@ -147,7 +149,7 @@ def tr_frame(df: pd.DataFrame, value_cols: tuple[str, ...] = ()) -> pd.DataFrame
 
 def num(x, nd: int = 4) -> str:
     """Galician number format: decimal comma, space as the thousands separator."""
-    if abs(x) >= 1e4:
+    if abs(x) >= 1e3:
         s = f"{x:,.0f}"
     else:
         s = f"{x:,.{nd}g}"
