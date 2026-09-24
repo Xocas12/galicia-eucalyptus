@@ -1,178 +1,203 @@
-# Galicia eucalyptus impact: pipeline report
+# Impacto do eucalipto en Galicia: informe da análise
 
-> **SYNTHETIC DATA.** Every number below comes from the simulated landscape in
-> `data/synthetic.py`, whose effects were set by hand. This report shows that the estimators
-> recover known effects. It says nothing about the real Galicia.
+> **DATOS SINTÉTICOS.** Todas as cifras deste informe proceden da paisaxe simulada en
+> `data/synthetic.py`, cuxos efectos se fixaron a man. O informe demostra que os estimadores
+> recuperan efectos coñecidos. Non di nada sobre a Galicia real.
 
-Domain: 38,581 land cells at 1000 m, 2000-2024.
-Eucalyptus area (truth) went from 669k ha to 857k ha.
+Dominio: 38 581 celas de terra de 1 000 m, 2000–2024.
+A superficie de eucalipto (valor real da simulación) pasou de 669 mil ha a
+857 mil ha.
 
-![maps](maps.png)
+![mapas](maps.png)
 
-## 1. Effect estimates vs truth
+## 1. Estimacións dos efectos fronte ao valor real
 
-The naive column is what a map overlay or bivariate regression would report. The causal
-column partials out climate, terrain, human pressure and the other cover types.
+As estimacións por MCO son as inxenuas: o que daría unha superposición de mapas ou unha regresión
+bivariante. As causais eliminan a influencia do clima, do relevo, da presión humana e dos demais
+tipos de cuberta.
 
-| effect | method | estimate | se | truth | covers_truth |
+| efecto | método | estimación | EE | valor real | o IC contén o valor real |
 |---|---|---|---|---|---|
-| eucalyptus -> P(burn) | OLS | -0.01678 | 0.007853 | 0.02209 | **no** |
-| eucalyptus -> P(burn) | DML-PLR | 0.02791 | 0.00626 | 0.02209 | yes |
-| eucalyptus -> dNBR | OLS | -71.13 | 21.38 | 120 | **no** |
-| eucalyptus -> dNBR | DML-PLR | 121.7 | 7.333 | 120 | yes |
-| recent fire -> conversion rate | OLS | 0.007231 | 0.001187 | 0.006126 | yes |
-| recent fire -> conversion rate | DML-PLR | 0.006706 | 0.001099 | 0.006126 | yes |
-| eucalyptus -> runoff | OLS | 115.2 | 105.3 | -113.9 | **no** |
-| f_eucalyptus -> runoff | TWFE | -108.8 | 63.11 | -113.9 | yes |
-| eucalyptus -> runoff | Budyko-Fu | -105.5 | - | -113.9 | - |
-| f_eucalyptus -> low_flow | TWFE | -37.15 | 15.15 | - | - |
-| eucalyptus -> summer soil moisture | OLS | -0.03394 | 0.008257 | -0.06 | **no** |
-| eucalyptus -> summer soil moisture | DML-PLR | -0.05416 | 0.002163 | -0.06 | **no** |
-| eucalyptus stand vs other -> soil moisture | Matching (bias-corrected) | -0.02293 | 0.001437 | -0.02424 | yes |
-| reverse check: future eucalyptus gain ~ P(burn) | DML-PLR | 0.3682 | 0.04131 | - | - |
-| eucalyptus -> summer soil moisture | DML-PLR (SIMEX) | -0.0579 | 0.002163 | -0.06 | yes |
-| eucalyptus -> dNBR | DML-PLR (SIMEX) | 126.6 | 7.333 | 120 | yes |
+| eucalipto → P(queima) | MCO | -0,01678 | 0,007853 | 0,02209 | **non** |
+| eucalipto → P(queima) | DML | 0,02791 | 0,00626 | 0,02209 | si |
+| eucalipto → severidade (dNBR) | MCO | -71,13 | 21,38 | 120 | **non** |
+| eucalipto → severidade (dNBR) | DML | 121,7 | 7,333 | 120 | si |
+| incendio recente → taxa de conversión | MCO | 0,007231 | 0,001187 | 0,006126 | si |
+| incendio recente → taxa de conversión | DML | 0,006706 | 0,001099 | 0,006126 | si |
+| eucalipto → escorrentía | MCO | 115,2 | 105,3 | -113,9 | **non** |
+| eucalipto → escorrentía | Efectos fixos | -108,8 | 63,11 | -113,9 | si |
+| eucalipto → escorrentía | Budyko-Fu | -105,5 | – | -113,9 | – |
+| eucalipto → caudal estival | Efectos fixos | -37,15 | 15,15 | – | – |
+| eucalipto → humidade estival do solo | MCO | -0,03394 | 0,008257 | -0,06 | **non** |
+| eucalipto → humidade estival do solo | DML | -0,05416 | 0,002163 | -0,06 | **non** |
+| masa de eucalipto fronte a outras → humidade do solo | Emparellamento (corrixido) | -0,02293 | 0,001437 | -0,02424 | si |
+| comprobación inversa: ganancia futura de eucalipto ~ P(queima) | DML | 0,3682 | 0,04131 | – | – |
+| eucalipto → humidade estival do solo | DML (SIMEX) | -0,0579 | 0,002163 | -0,06 | si |
+| eucalipto → severidade (dNBR) | DML (SIMEX) | 126,6 | 7,333 | 120 | si |
 
-![effects](effects.png)
+![efectos](effects.png)
 
-Map-error variance of the eucalyptus fraction (from the reference sample):
-0.00042. Classifier error in the *treatment* attenuates every
-effect towards zero, and every cover fraction carries error, controls included. The SIMEX rows
-correct for this by adding extra simulated map error, tracing how the estimate degrades, and
-extrapolating back to zero error (section 4b). A simpler single-variance regression calibration
-over-corrects here, because part of the treatment's map noise is predictable from the other
-fractions' noise.
+Varianza do erro cartográfico da fracción de eucalipto (segundo a mostra de referencia):
+0,00042. O erro do clasificador no *tratamento* atenúa
+todos os efectos cara a cero, e todas as fraccións de cuberta levan erro, tamén as que actúan como
+control. As filas SIMEX corrixen isto: engaden erro cartográfico simulado, observan como se
+degrada a estimación e extrapolan ata erro cero (sección 4b). Unha calibración de regresión máis
+sinxela, cunha única varianza, corrixe en exceso, porque parte do ruído cartográfico do tratamento
+se pode predicir a partir do ruído das outras fraccións.
 
-Fire-occurrence effect of each cover class vs the agriculture/other reference (used to price
-scenarios; truth on the logit scale: eucalyptus 0.9, pine 0.7,
-native -0.6, shrub 1.1):
+Efecto de cada clase de cuberta sobre a probabilidade de incendio fronte á referencia
+agricultura/outros. Úsase para valorar os escenarios. O valor real, na escala logit, é:
+eucalipto 0,9, piñeiro 0,7, frondosas autóctonas
+-0,6 e mato 1,1.
 
-| cover | dP(burn)/dshare | se |
+| cuberta | dP(queima)/dfracción | EE |
 |---|---|---|
-| eucalyptus | 0.02791 | 0.00626 |
-| pine | 0.01779 | 0.007285 |
-| native_broadleaf | -0.005582 | 0.005281 |
-| shrub | 0.03905 | 0.007613 |
+| eucalipto | 0,02791 | 0,00626 |
+| piñeiro | 0,01779 | 0,007285 |
+| frondosas autóctonas | -0,005582 | 0,005281 |
+| mato | 0,03905 | 0,007613 |
 
-## 2. Species mapping and forest-loss accounting
+## 2. Cartografía de especies e contabilidade da perda forestal
 
-- Spatial-block CV accuracy **0.934** vs random CV 0.939
-  (the gap is the optimism of non-spatial validation). Kappa 0.916.
+- Exactitude con validación cruzada por bloques espaciais **0,934**
+  fronte a 0,939 con validación cruzada aleatoria (a diferenza é o
+  optimismo dunha validación non espacial). Kappa 0,916.
 
-| name | map_area_ha | est_area_ha | ci95_ha | true_area_ha | users_accuracy | producers_accuracy |
+| clase | superficie no mapa (ha) | superficie estimada (ha) | IC 95 % (± ha) | superficie real (ha) | exactitude do usuario | exactitude do produtor |
 |---|---|---|---|---|---|---|
-| eucalyptus | 9.0646e+05 | 8.4114e+05 | 60,550 | 8.5677e+05 | 0.84 | 0.90523 |
-| pine | 4.7828e+05 | 5.436e+05 | 60,550 | 5.2349e+05 | 0.83333 | 0.7332 |
-| native_broadleaf | 1.0718e+06 | 1.068e+06 | 15,495 | 1.0692e+06 | 0.99333 | 0.99683 |
-| shrub | 8.5457e+05 | 8.4708e+05 | 17,094 | 8.5559e+05 | 0.98667 | 0.99538 |
-| agriculture | 5.0753e+05 | 5.1931e+05 | 23,048 | 5.081e+05 | 0.98667 | 0.9643 |
-| other | 39,481 | 38,955 | 727.12 | 44,904 | 0.98667 | 1 |
+| eucalipto | 906 461 | 841 140 | 60 550 | 856 771 | 0,84 | 0,90523 |
+| piñeiro | 478 276 | 543 597 | 60 550 | 523 491 | 0,83333 | 0,7332 |
+| frondosas autóctonas | 1 071 780 | 1 068 019 | 15 495 | 1 069 250 | 0,99333 | 0,99683 |
+| mato | 854 569 | 847 085 | 17 094 | 855 586 | 0,98667 | 0,99538 |
+| agricultura | 507 533 | 519 305 | 23 048 | 508 098 | 0,98667 | 0,9643 |
+| outros | 39 481 | 38 955 | 727,12 | 44 904 | 0,98667 | 1 |
 
-![area](area_species.png)
+![superficie por especie](area_species.png)
 
-Change areas (map differencing compounds two maps' errors; the stratified estimator corrects it):
+Superficies de cambio. A diferenza entre dous mapas acumula os erros de ambos, e o estimador
+estratificado corríxeo:
 
-| name | map_area_ha | est_area_ha | ci95_ha | true_area_ha |
+| clase | superficie no mapa (ha) | superficie estimada (ha) | IC 95 % (± ha) | superficie real (ha) |
 |---|---|---|---|---|
-| native->eucalyptus | 32,215 | 27,490 | 1,830 | 30,921 |
-| other->eucalyptus | 3.1328e+05 | 1.6718e+05 | 59,715 | 1.5644e+05 |
-| eucalyptus stable | 5.6097e+05 | 6.3365e+05 | 30,018 | 6.6941e+05 |
-| other | 2.9516e+06 | 3.0298e+06 | 61,924 | 3.0013e+06 |
+| autóctonas → eucalipto | 32 215 | 27 490 | 1 830 | 30 921 |
+| outras → eucalipto | 313 278 | 167 184 | 59 715 | 156 435 |
+| eucalipto estable | 560 968 | 633 653 | 30 018 | 669 414 |
+| outros | 2 951 639 | 3 029 772 | 61 924 | 3 001 329 |
 
-![change](area_change.png)
+![superficie de cambio](area_change.png)
 
-Tree-cover loss attribution (cell-fraction units):
+Atribución da perda de cuberta arbórea (en fraccións de cela):
 
-| driver | attributed | true | attributed_share | true_share |
+| causa | atribuída | real | proporción atribuída | proporción real |
 |---|---|---|---|---|
-| fire | 4,713 | 4,456 | 0.1975 | 0.1867 |
-| rotation | 1.878e+04 | 1.887e+04 | 0.7868 | 0.7909 |
-| conversion | 375.9 | 535.6 | 0.01575 | 0.02244 |
+| incendio | 4 713 | 4 456 | 0,1975 | 0,1867 |
+| corta de rotación | 18 777 | 18 875 | 0,7868 | 0,7909 |
+| conversión | 375,9 | 535,6 | 0,01575 | 0,02244 |
 
-Conversion driver model: spatial-CV R² 0.129.
+Modelo de factores da conversión: R² en validación cruzada espacial
+0,129.
 
-![drivers](conversion_drivers.png)
+![factores da conversión](conversion_drivers.png)
 
-## 3. Fire
+## 3. Incendios
 
-Susceptibility: spatial-CV AUC **0.813**, Brier 0.0252,
-base rate 0.0275.
+Susceptibilidade: AUC en validación cruzada espacial **0,813**,
+puntuación de Brier 0,0252 e taxa base 0,0275.
 
-![calibration](fire_calibration.png)
+![calibración](fire_calibration.png)
 
-## 4. Water
+## 4. Auga
 
-Budyko (Fu) parameters (estimate, SE; truth w_euc = 1.2):
-`{"w0": [2.04, 0.041], "w_euc": [1.089, 0.064], "w_pine": [0.43, 0.123], "w_native": [0.293, 0.067]}`
+Parámetros da curva de Budyko (Fu). O valor real de w eucalipto é 1,2.
 
-Matching balance (share of treated dropped for lack of overlap:
-0.97):
-
-| feature | smd_before | smd_after |
+| parámetro | estimación | EE |
 |---|---|---|
-| elev | -2.358 | 0.06848 |
-| slope | -0.3863 | 0.04156 |
-| continentality | -1.984 | 0.1302 |
-| precip_mean | 0.4187 | 0.04002 |
-| pet_mean | -1.161 | 0.1334 |
-| summer_temp | -0.01642 | 0.1247 |
-| log_pop | 0.617 | -0.1291 |
-| dist_coast_km | -0.9331 | 0.1918 |
+| w₀ | 2,04 | 0,04121 |
+| w eucalipto | 1,089 | 0,06366 |
+| w piñeiro | 0,4303 | 0,123 |
+| w frondosas autóctonas | 0,2934 | 0,06725 |
 
-## 4b. Robustness
+Equilibrio do emparellamento. Proporción de celas tratadas descartadas por falta de
+solapamento: 0,97.
 
-**Where does eucalyptus raise fire risk?** Group effects from the same DML fit:
+| variable | DME antes | DME despois |
+|---|---|---|
+| altitude | -2,358 | 0,06848 |
+| pendente | -0,3863 | 0,04156 |
+| continentalidade | -1,984 | 0,1302 |
+| precipitación media | 0,4187 | 0,04002 |
+| ETP media | -1,161 | 0,1334 |
+| temperatura estival | -0,01642 | 0,1247 |
+| poboación (log) | 0,617 | -0,1291 |
+| distancia á costa (km) | -0,9331 | 0,1918 |
 
-| group | estimate | se | n | truth |
+## 4b. Robustez
+
+**Onde aumenta máis o eucalipto o risco de incendio?** Efectos por grupos obtidos do mesmo axuste DML:
+
+| grupo | estimación | EE | n | valor real |
 |---|---|---|---|---|
-| 1 coast | 0.02451 | 0.00645 | 83,335 | 0.01037 |
-| 2 transition | 0.03135 | 0.01166 | 83,340 | 0.01442 |
-| 3 interior | 0.03514 | 0.02315 | 83,325 | 0.04149 |
+| costa | 0,02451 | 0,00645 | 83 335 | 0,01037 |
+| transición | 0,03135 | 0,01166 | 83 340 | 0,01442 |
+| interior | 0,03514 | 0,02315 | 83 325 | 0,04149 |
 
-| group | estimate | se | n | truth |
+| grupo | estimación | EE | n | valor real |
 |---|---|---|---|---|
-| 1 low FWI | 0.01625 | 0.006641 | 83,334 | 0.00432 |
-| 2 mid FWI | 0.03071 | 0.008419 | 83,333 | 0.01372 |
-| 3 high FWI | 0.04715 | 0.01753 | 83,333 | 0.04824 |
+| FWI baixo | 0,01625 | 0,006641 | 83 334 | 0,00432 |
+| FWI medio | 0,03071 | 0,008419 | 83 333 | 0,01372 |
+| FWI alto | 0,04715 | 0,01753 | 83 333 | 0,04824 |
 
-![gates](fire_gates.png)
+![efectos por grupos](fire_gates.png)
 
-**Unobserved confounding.** `rv_estimate` is the partial R² an unmapped confounder would
-need with *both* treatment and outcome to explain the whole estimate away; `rv_ci` makes
-the 95% CI reach zero. `max_bias` is the largest shift a confounder of the given strength
-could cause.
+**Confusión non observada.** O *valor de robustez* (VR) da estimación é o R² parcial que necesitaría un factor de confusión non cartografado, tanto co tratamento como co resultado, para explicar toda a estimación. O VR do IC é o que leva o intervalo de confianza do 95 % ata cero. O nesgo máximo é o maior desprazamento que podería causar un factor de confusión desa intensidade.
 
-| effect | estimate | rv_estimate | rv_ci | max_bias_r2_0.02 | max_bias_r2_0.05 |
+| efecto | estimación | VR da estimación | VR do IC | nesgo máx. (R² = 0,02) | nesgo máx. (R² = 0,05) |
 |---|---|---|---|---|---|
-| eucalyptus -> P(burn) | 0.02791 | 0.0109 | 0.006121 | 0.05147 | 0.1307 |
-| eucalyptus -> dNBR | 121.7 | 0.1014 | 0.09002 | 22.97 | 58.33 |
-| eucalyptus -> summer soil moisture | -0.05416 | 0.1664 | 0.1545 | 0.006005 | 0.01525 |
+| eucalipto → P(queima) | 0,02791 | 0,0109 | 0,006121 | 0,05147 | 0,1307 |
+| eucalipto → severidade (dNBR) | 121,7 | 0,1014 | 0,09002 | 22,97 | 58,33 |
+| eucalipto → humidade estival do solo | -0,05416 | 0,1664 | 0,1545 | 0,006005 | 0,01525 |
 
-**Spatial clustering.** Fire-occurrence SE by cluster size (km):
+**Agrupamento espacial.** Erro estándar do efecto sobre a aparición de incendios segundo o tamaño do bloque (km):
 
-| block_km | se |
+| bloque (km) | EE |
 |---|---|
-| 5 | 0.004816 |
-| 10 | 0.005442 |
-| 20 | 0.005495 |
-| 40 | 0.006488 |
-| 80 | 0.004013 |
+| 5 | 0,004816 |
+| 10 | 0,005442 |
+| 20 | 0,005495 |
+| 40 | 0,006488 |
+| 80 | 0,004013 |
 
-**SIMEX.** Map error in *all* cover fractions, extrapolated to zero:
+**SIMEX.** Erro cartográfico en *todas* as fraccións de cuberta, extrapolado a cero:
 
-![simex](simex.png)
+![SIMEX](simex.png)
 
-## 5. Policy scenarios to 2040
+## 5. Escenarios de política ata 2040
 
-Horizon-year contrasts vs BAU: the simulated world (truth) next to the projection from the
-estimated causal effects (per-class DML effects, risk-weighted, for fire; the fitted Budyko curve
-for runoff). Small contrasts, such as the cap, are within simulation noise, so read their sign
-with care.
+Contrastes no ano horizonte fronte ao escenario tendencial: o mundo simulado (valor real) xunto á
+proxección feita cos efectos causais estimados (efectos DML por clase, ponderados polo risco, para
+os incendios; a curva de Budyko axustada para a escorrentía). Os contrastes pequenos, como o do
+límite, quedan dentro do ruído da simulación, así que o seu signo debe lerse con cautela.
 
-| scenario | d_eucalyptus_ha | d_burned_ha_simulated | d_burned_ha_model | d_runoff_mm_simulated | d_runoff_mm_model |
+| escenario | Δ eucalipto (ha) | Δ queimado simulado (ha/ano) | Δ queimado modelo (ha/ano) | Δ escorrentía simulada (mm) | Δ escorrentía modelo (mm) |
 |---|---|---|---|---|---|
-| Cap / moratorium | -3.587e+04 | -102.3 | -94.73 | 0.674 | 0.6627 |
-| Targeted restoration | -2.424e+05 | -2,437 | -4,572 | 3.646 | 3.924 |
-| Random restoration | -2.423e+05 | -1,899 | -2,866 | 3.877 | 4.116 |
+| Límite / moratoria | -35 873 | -102,3 | -94,73 | 0,674 | 0,6627 |
+| Restauración dirixida | -242 401 | -2 437 | -4 572 | 3,646 | 3,924 |
+| Restauración aleatoria | -242 347 | -1 899 | -2 866 | 3,877 | 4,116 |
 
-![scenarios](scenarios.png)
+![escenarios](scenarios.png)
+
+## Siglas
+
+| sigla | significado |
+|---|---|
+| AUC | área baixo a curva ROC |
+| DME | diferenza de medias estandarizada |
+| DML | aprendizaxe automática dobre (estimación causal con axustes cruzados) |
+| dNBR | diferenza do índice normalizado de área queimada (severidade) |
+| EE | erro estándar |
+| ETP | evapotranspiración potencial |
+| FWI | índice meteorolóxico de perigo de incendio |
+| IC | intervalo de confianza |
+| MCO | mínimos cadrados ordinarios (estimación inxenua) |
+| SIMEX | extrapolación por simulación (corrección do erro de medida) |
+| VR | valor de robustez |

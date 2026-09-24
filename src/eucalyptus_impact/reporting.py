@@ -8,6 +8,7 @@ with a neutral grey midpoint.
 from __future__ import annotations
 
 import json
+import textwrap
 from pathlib import Path
 
 import matplotlib
@@ -17,8 +18,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.ticker import FuncFormatter, MaxNLocator, ScalarFormatter
 
 from .data.synthetic import EUC, NATIVE
+from .i18n_gl import num, tr, tr_frame
 
 INK = "#0b0b0b"
 INK_2 = "#52514e"
@@ -62,10 +65,19 @@ def _save(fig, path: Path):
     plt.close(fig)
 
 
+def _gl_ticks(fig):
+    """Decimal commas on every numeric axis (categorical tick labels are left alone)."""
+    fmt = FuncFormatter(lambda v, _: f"{v:g}".replace(".", ",").replace("-", "\u2212"))
+    for ax in fig.axes:
+        for axis in (ax.xaxis, ax.yaxis):
+            if isinstance(axis.get_major_formatter(), ScalarFormatter):
+                axis.set_major_formatter(fmt)
+
+
 def fig_effects(tab: pd.DataFrame, path: Path):
     """Small multiples: one panel per effect (units differ), naive vs causal with 95% CI."""
-    effects = list(dict.fromkeys(tab["effect"].str.replace("f_eucalyptus", "eucalyptus")))
-    tab = tab.assign(effect=tab["effect"].str.replace("f_eucalyptus", "eucalyptus"))
+    tab = tab.assign(effect=tab["effect"].map(tr))
+    effects = list(dict.fromkeys(tab["effect"]))
     ncol = 3
     nrow = -(-len(effects) // ncol)
     fig, axes = plt.subplots(nrow, ncol, figsize=(12, 2.3 * nrow), squeeze=False)
@@ -80,7 +92,7 @@ def fig_effects(tab: pd.DataFrame, path: Path):
                 r["estimate"], i, xerr=1.96 * se, fmt="o", color=color, ms=6, lw=2, capsize=0
             )
             ax.annotate(
-                r["method"],
+                tr(r["method"]),
                 (r["estimate"], i),
                 xytext=(0, 7),
                 textcoords="offset points",
@@ -93,18 +105,20 @@ def fig_effects(tab: pd.DataFrame, path: Path):
         ax.axvline(0, color=MUTED, lw=0.8)
         ax.set_yticks([])
         ax.set_ylim(-0.7, len(sub) - 0.3)
-        ax.set_title(eff, fontsize=9)
+        ax.set_title(textwrap.fill(eff, 42), fontsize=9)
     for ax in axes.ravel()[len(effects) :]:
         ax.set_visible(False)
     fig.suptitle(
-        "Effect estimates vs simulator truth (dashed): naive (orange), causal (blue), "
-        "causal + map-error correction (aqua); 95% CI",
+        "Estimacións dos efectos fronte ao valor real da simulación (liña descontinua): "
+        "inxenuas (laranxa), causais (azul), causais con corrección do erro cartográfico "
+        "(verde auga); IC 95 %",
         fontsize=11,
         color=INK,
         x=0.01,
         ha="left",
     )
     fig.tight_layout()
+    _gl_ticks(fig)
     _save(fig, path)
 
 
@@ -116,12 +130,12 @@ def fig_maps(land, scen: dict, path: Path):
     sel = land.to_2d(scen["selected_targeted"].astype(float))
     fig, axes = plt.subplots(2, 3, figsize=(13, 9))
     panels = [
-        (e0, SEQ_GREEN, f"Eucalyptus share {land.years[0]}", (0, 1)),
-        (e1, SEQ_GREEN, f"Eucalyptus share {land.years[-1]}", (0, 1)),
-        (e1 - e0, DIVERGING, "Change in eucalyptus share", None),
-        (freq, SEQ_ORANGE, "Annual burn frequency", None),
-        (d_native, DIVERGING, "Change in native broadleaf share (true)", None),
-        (sel, SEQ_GREEN, "Targeted restoration cells", (0, 1)),
+        (e0, SEQ_GREEN, f"Fracción de eucalipto {land.years[0]}", (0, 1)),
+        (e1, SEQ_GREEN, f"Fracción de eucalipto {land.years[-1]}", (0, 1)),
+        (e1 - e0, DIVERGING, "Cambio na fracción de eucalipto", None),
+        (freq, SEQ_ORANGE, "Frecuencia anual de queima", None),
+        (d_native, DIVERGING, "Cambio na fracción de frondosas autóctonas (real)", None),
+        (sel, SEQ_GREEN, "Celas de restauración dirixida", (0, 1)),
     ]
     for ax, (arr, cmap, title, lim) in zip(axes.ravel(), panels, strict=True):
         if cmap is DIVERGING:
@@ -136,15 +150,20 @@ def fig_maps(land, scen: dict, path: Path):
         ax.set_yticks([])
         ax.grid(False)
         fig.colorbar(im, ax=ax, shrink=0.75)
-    fig.suptitle("Synthetic Galicia (stylised; not real geography)", x=0.01, ha="left", color=INK_2)
+    fig.suptitle(
+        "Galicia sintética (estilizada; non é a xeografía real)", x=0.01, ha="left", color=INK_2
+    )
     fig.tight_layout()
+    _gl_ticks(fig)
     _save(fig, path)
 
 
 def fig_area(area: pd.DataFrame, path: Path, title: str):
     fig, ax = plt.subplots(figsize=(8, 3.6))
     y = np.arange(len(area))
-    ax.barh(y + 0.2, area["map_area_ha"] / 1e3, height=0.36, color=MUTED, label="Pixel count")
+    ax.barh(
+        y + 0.2, area["map_area_ha"] / 1e3, height=0.36, color=MUTED, label="Reconto de píxeles"
+    )
     ax.barh(
         y - 0.2,
         area["est_area_ha"] / 1e3,
@@ -152,16 +171,24 @@ def fig_area(area: pd.DataFrame, path: Path, title: str):
         color=CAUSAL,
         xerr=area["ci95_ha"] / 1e3,
         error_kw={"ecolor": INK_2, "lw": 1},
-        label="Stratified estimate (95% CI)",
+        label="Estimación estratificada (IC 95 %)",
     )
     ax.scatter(
-        area["true_area_ha"] / 1e3, y, marker="|", s=250, color=INK, lw=2, zorder=5, label="Truth"
+        area["true_area_ha"] / 1e3,
+        y,
+        marker="|",
+        s=250,
+        color=INK,
+        lw=2,
+        zorder=5,
+        label="Valor real",
     )
-    ax.set_yticks(y, area["name"])
+    ax.set_yticks(y, [tr(n) for n in area["name"]])
     ax.invert_yaxis()
-    ax.set_xlabel("thousand ha")
+    ax.set_xlabel("miles de ha")
     ax.set_title(title, loc="left")
     ax.legend(loc="lower right", fontsize=8)
+    _gl_ticks(fig)
     _save(fig, path)
 
 
@@ -170,18 +197,24 @@ def fig_calibration(calib: pd.DataFrame, auc: float, path: Path):
     m = max(calib["predicted"].max(), calib["observed"].max()) * 1.05
     ax.plot([0, m], [0, m], color=MUTED, lw=1, ls="--")
     ax.plot(calib["predicted"], calib["observed"], "-o", color=CAUSAL, lw=2, ms=6)
-    ax.set_xlabel("predicted P(burn), decile mean")
-    ax.set_ylabel("observed burn rate")
-    ax.set_title(f"Fire susceptibility calibration\nspatial-CV AUC {auc:.2f}", loc="left")
+    ax.set_xlabel("P(queima) predita, media por decil")
+    ax.set_ylabel("taxa de queima observada")
+    ax.set_title(
+        f"Calibración da susceptibilidade aos incendios\nAUC en validación cruzada espacial "
+        f"{num(auc, 2)}",
+        loc="left",
+    )
+    _gl_ticks(fig)
     _save(fig, path)
 
 
 def fig_importance(imp: pd.DataFrame, path: Path):
     imp = imp.head(10).iloc[::-1]
     fig, ax = plt.subplots(figsize=(6, 3.6))
-    ax.barh(imp["feature"], imp["importance"], color=CAUSAL, height=0.6)
-    ax.set_xlabel("permutation importance (drop in R², predictive not causal)")
-    ax.set_title("Drivers of conversion to eucalyptus", loc="left")
+    ax.barh([tr(f) for f in imp["feature"]], imp["importance"], color=CAUSAL, height=0.6)
+    ax.set_xlabel("importancia por permutación (caída do R²; predictiva, non causal)")
+    ax.set_title("Factores da conversión a eucalipto", loc="left")
+    _gl_ticks(fig)
     _save(fig, path)
 
 
@@ -192,13 +225,16 @@ def fig_gates(gates: dict[str, pd.DataFrame], path: Path):
         y = np.arange(len(g))
         ax.errorbar(g["estimate"], y, xerr=1.96 * g["se"], fmt="o", color=CAUSAL, ms=6, lw=2)
         if "truth" in g:
-            ax.scatter(g["truth"], y, marker="|", s=250, color=INK, lw=2, zorder=5, label="truth")
+            ax.scatter(
+                g["truth"], y, marker="|", s=250, color=INK, lw=2, zorder=5, label="valor real"
+            )
             ax.legend(fontsize=8, loc="lower right")
         ax.axvline(0, color=MUTED, lw=0.8)
-        ax.set_yticks(y, [str(v)[2:] for v in g["group"]])
-        ax.set_xlabel("dP(burn) / d eucalyptus share")
+        ax.set_yticks(y, [tr(v) for v in g["group"]])
+        ax.set_xlabel("dP(queima) / d fracción de eucalipto")
         ax.set_title(title, loc="left")
     fig.tight_layout()
+    _gl_ticks(fig)
     _save(fig, path)
 
 
@@ -213,7 +249,7 @@ def fig_simex(path_df: pd.DataFrame, path: Path):
         ax.plot(p["lambda"], p["estimate"], "o", color=CAUSAL, ms=7)
         ax.plot([-1], [np.polyval(coef, -1)], "o", color="#1baf7a", ms=8)
         ax.annotate(
-            "extrapolated\n(no map error)",
+            "extrapolado\n(sen erro cartográfico)",
             (-1, np.polyval(coef, -1)),
             xytext=(8, 0),
             textcoords="offset points",
@@ -221,9 +257,10 @@ def fig_simex(path_df: pd.DataFrame, path: Path):
             color=INK_2,
             va="center",
         )
-        ax.set_xlabel("added map-error variance (multiples of measured)")
-        ax.set_title(f"SIMEX: {eff}", loc="left")
+        ax.set_xlabel("varianza engadida do erro cartográfico (múltiplos da medida)")
+        ax.set_title(f"SIMEX: {tr(eff)}", loc="left")
     fig.tight_layout()
+    _gl_ticks(fig)
     _save(fig, path)
 
 
@@ -256,37 +293,32 @@ def export_priority(land, scen: dict, out: Path):
 def fig_scenarios(traj: pd.DataFrame, path: Path):
     fig, axes = plt.subplots(1, 2, figsize=(12, 3.8))
     for ax, col, lab in (
-        (axes[0], "eucalyptus_ha", "Eucalyptus area (thousand ha)"),
-        (axes[1], "expected_burned_ha", "Expected burned area (thousand ha / yr)"),
+        (axes[0], "eucalyptus_ha", "Superficie de eucalipto (miles de ha)"),
+        (axes[1], "expected_burned_ha", "Superficie queimada esperada (miles de ha/ano)"),
     ):
         for color, (name, g) in zip(SERIES, traj.groupby("scenario", sort=False), strict=False):
-            ax.plot(g["year"], g[col] / 1e3, color=color, lw=2, label=name)
-            ax.annotate(
-                name,
-                (g["year"].iloc[-1], g[col].iloc[-1] / 1e3),
-                xytext=(4, 0),
-                textcoords="offset points",
-                fontsize=7.5,
-                color=INK_2,
-                va="center",
-            )
+            ax.plot(g["year"], g[col] / 1e3, color=color, lw=2, label=tr(name))
         ax.set_title(lab, loc="left")
-        ax.margins(x=0.25)
+        ax.xaxis.set_major_locator(MaxNLocator(integer=True))
+        ax.xaxis.set_major_formatter(FuncFormatter(lambda v, _: f"{v:.0f}"))
     axes[0].legend(fontsize=8, loc="lower left")
+    _gl_ticks(fig)
     _save(fig, path)
 
 
 def _fmt(x, nd=4):
     if x is None or (isinstance(x, float) and not np.isfinite(x)):
-        return "-"
+        return "\u2013"
     if isinstance(x, (bool, np.bool_)):
-        return "yes" if x else "**no**"
+        return "si" if x else "**non**"
     if isinstance(x, (int, np.integer)):
-        return f"{x:,}"
-    return f"{x:,.{nd}g}"
+        return num(int(x))
+    return num(float(x), nd)
 
 
-def _md_table(df: pd.DataFrame, nd=4) -> str:
+def _md_table(df: pd.DataFrame, nd=4, values=()) -> str:
+    """Markdown table with Galician headers, translated `values` columns and Galician numbers."""
+    df = tr_frame(df, tuple(values))
     cols = list(df.columns)
     lines = ["| " + " | ".join(cols) + " |", "|" + "---|" * len(cols)]
     for _, r in df.iterrows():
@@ -302,38 +334,59 @@ def _robustness_md(rob: dict) -> str:
     if not rob:
         return ""
     parts = [
-        "## 4b. Robustness",
+        "## 4b. Robustez",
         "",
-        "**Where does eucalyptus raise fire risk?** Group effects from the same DML fit:",
+        "**Onde aumenta máis o eucalipto o risco de incendio?** Efectos por grupos obtidos do "
+        "mesmo axuste DML:",
         "",
-        _md_table(rob["gate_region"]),
+        _md_table(rob["gate_region"], values=("group",)),
         "",
-        _md_table(rob["gate_fwi"]),
+        _md_table(rob["gate_fwi"], values=("group",)),
         "",
-        "![gates](fire_gates.png)",
+        "![efectos por grupos](fire_gates.png)",
         "",
-        "**Unobserved confounding.** `rv_estimate` is the partial R² an unmapped confounder would",
-        "need with *both* treatment and outcome to explain the whole estimate away; `rv_ci` makes",
-        "the 95% CI reach zero. `max_bias` is the largest shift a confounder of the given strength",
-        "could cause.",
+        "**Confusión non observada.** O *valor de robustez* (VR) da estimación é o R² parcial "
+        "que necesitaría un factor de confusión non cartografado, tanto co tratamento como co "
+        "resultado, para explicar toda a estimación. O VR do IC é o que leva o intervalo de "
+        "confianza do 95 % ata cero. O nesgo máximo é o maior desprazamento que podería causar "
+        "un factor de confusión desa intensidade.",
         "",
-        _md_table(rob["sensitivity"]),
+        _md_table(rob["sensitivity"], values=("effect",)),
     ]
     if "se_by_block" in rob:
         parts += [
             "",
-            "**Spatial clustering.** Fire-occurrence SE by cluster size (km):",
+            "**Agrupamento espacial.** Erro estándar do efecto sobre a aparición de incendios "
+            "segundo o tamaño do bloque (km):",
             "",
             _md_table(rob["se_by_block"]),
         ]
     if "simex" in rob:
         parts += [
             "",
-            "**SIMEX.** Map error in *all* cover fractions, extrapolated to zero:",
+            "**SIMEX.** Erro cartográfico en *todas* as fraccións de cuberta, extrapolado a cero:",
             "",
-            "![simex](simex.png)",
+            "![SIMEX](simex.png)",
         ]
     return "\n".join(parts)
+
+
+GLOSSARY = """## Siglas
+
+| sigla | significado |
+|---|---|
+| AUC | área baixo a curva ROC |
+| DME | diferenza de medias estandarizada |
+| DML | aprendizaxe automática dobre (estimación causal con axustes cruzados) |
+| dNBR | diferenza do índice normalizado de área queimada (severidade) |
+| EE | erro estándar |
+| ETP | evapotranspiración potencial |
+| FWI | índice meteorolóxico de perigo de incendio |
+| IC | intervalo de confianza |
+| MCO | mínimos cadrados ordinarios (estimación inxenua) |
+| SIMEX | extrapolación por simulación (corrección do erro de medida) |
+| VR | valor de robustez |
+"""
 
 
 def write_report(res: dict, out_dir: str | Path) -> Path:
@@ -352,9 +405,13 @@ def write_report(res: dict, out_dir: str | Path) -> Path:
     fig_effects(tab, out / "effects.png")
     fig_maps(land, scen, out / "maps.png")
     fig_area(
-        lc["area"], out / "area_species.png", "Species area: pixel counting vs stratified estimator"
+        lc["area"],
+        out / "area_species.png",
+        "Superficie por especie: reconto de píxeles fronte a estimador estratificado",
     )
-    fig_area(lc["change"], out / "area_change.png", "Change area (start → end year)")
+    fig_area(
+        lc["change"], out / "area_change.png", "Superficie de cambio (ano inicial → ano final)"
+    )
     fig_calibration(fs["calibration"], fs["spatial_cv_auc"], out / "fire_calibration.png")
     fig_importance(res["conversion"]["importance"], out / "conversion_drivers.png")
     fig_scenarios(scen["trajectories"], out / "scenarios.png")
@@ -368,7 +425,10 @@ def write_report(res: dict, out_dir: str | Path) -> Path:
     rob = res.get("robustness", {})
     if rob:
         fig_gates(
-            {"By region (continentality)": rob["gate_region"], "By fire weather": rob["gate_fwi"]},
+            {
+                "Por rexión (continentalidade)": rob["gate_region"],
+                "Por meteoroloxía de incendios": rob["gate_fwi"],
+            },
             out / "fire_gates.png",
         )
         if "simex_path" in rob:
@@ -400,96 +460,118 @@ def write_report(res: dict, out_dir: str | Path) -> Path:
     ha = land.cell_area_ha()
     euc0 = land.cover[0, :, EUC].sum() * ha
     euc1 = land.cover[-1, :, EUC].sum() * ha
+    tp = land.truth
     eff_short = tab[["effect", "method", "estimate", "se", "truth", "covers_truth"]]
     bal = water["matching_balance"]
+    cover_tab = pd.DataFrame(
+        [
+            {"cover": k[2:], "dP(burn)/dshare": e.estimate, "se": e.se}
+            for k, e in res["fire_effects"]["cover_effects"].items()
+        ]
+    )
+    budyko_tab = pd.DataFrame(
+        [
+            {"parameter": tr(k), "estimate": v[0], "se": v[1]}
+            for k, v in water["budyko_params"].items()
+        ]
+    )
     robustness_md = _robustness_md(rob)
-    md = f"""# Galicia eucalyptus impact: pipeline report
+    horizon = res["config"].scenarios.horizon
+    md = f"""# Impacto do eucalipto en Galicia: informe da análise
 
-> **SYNTHETIC DATA.** Every number below comes from the simulated landscape in
-> `data/synthetic.py`, whose effects were set by hand. This report shows that the estimators
-> recover known effects. It says nothing about the real Galicia.
+> **DATOS SINTÉTICOS.** Todas as cifras deste informe proceden da paisaxe simulada en
+> `data/synthetic.py`, cuxos efectos se fixaron a man. O informe demostra que os estimadores
+> recuperan efectos coñecidos. Non di nada sobre a Galicia real.
 
-Domain: {land.n:,} land cells at {land.grid.resolution_m:.0f} m, {land.years[0]}-{land.years[-1]}.
-Eucalyptus area (truth) went from {euc0 / 1e3:,.0f}k ha to {euc1 / 1e3:,.0f}k ha.
+Dominio: {num(land.n)} celas de terra de {num(land.grid.resolution_m)} m, {land.years[0]}\u2013{land.years[-1]}.
+A superficie de eucalipto (valor real da simulación) pasou de {num(euc0 / 1e3, 3)} mil ha a
+{num(euc1 / 1e3, 3)} mil ha.
 
-![maps](maps.png)
+![mapas](maps.png)
 
-## 1. Effect estimates vs truth
+## 1. Estimacións dos efectos fronte ao valor real
 
-The naive column is what a map overlay or bivariate regression would report. The causal
-column partials out climate, terrain, human pressure and the other cover types.
+As estimacións por MCO son as inxenuas: o que daría unha superposición de mapas ou unha regresión
+bivariante. As causais eliminan a influencia do clima, do relevo, da presión humana e dos demais
+tipos de cuberta.
 
-{_md_table(eff_short)}
+{_md_table(eff_short, values=("effect", "method"))}
 
-![effects](effects.png)
+![efectos](effects.png)
 
-Map-error variance of the eucalyptus fraction (from the reference sample):
-{res.get("map_error_var", float("nan")):.5f}. Classifier error in the *treatment* attenuates every
-effect towards zero, and every cover fraction carries error, controls included. The SIMEX rows
-correct for this by adding extra simulated map error, tracing how the estimate degrades, and
-extrapolating back to zero error (section 4b). A simpler single-variance regression calibration
-over-corrects here, because part of the treatment's map noise is predictable from the other
-fractions' noise.
+Varianza do erro cartográfico da fracción de eucalipto (segundo a mostra de referencia):
+{num(res.get("map_error_var", float("nan")), 2)}. O erro do clasificador no *tratamento* atenúa
+todos os efectos cara a cero, e todas as fraccións de cuberta levan erro, tamén as que actúan como
+control. As filas SIMEX corrixen isto: engaden erro cartográfico simulado, observan como se
+degrada a estimación e extrapolan ata erro cero (sección 4b). Unha calibración de regresión máis
+sinxela, cunha única varianza, corrixe en exceso, porque parte do ruído cartográfico do tratamento
+se pode predicir a partir do ruído das outras fraccións.
 
-Fire-occurrence effect of each cover class vs the agriculture/other reference (used to price
-scenarios; truth on the logit scale: eucalyptus {land.truth.fire_euc}, pine {land.truth.fire_pine},
-native {land.truth.fire_native}, shrub {land.truth.fire_shrub}):
+Efecto de cada clase de cuberta sobre a probabilidade de incendio fronte á referencia
+agricultura/outros. Úsase para valorar os escenarios. O valor real, na escala logit, é:
+eucalipto {num(tp.fire_euc)}, piñeiro {num(tp.fire_pine)}, frondosas autóctonas
+{num(tp.fire_native)} e mato {num(tp.fire_shrub)}.
 
-{_md_table(pd.DataFrame([{"cover": k[2:], "dP(burn)/dshare": e.estimate, "se": e.se} for k, e in res["fire_effects"]["cover_effects"].items()]))}
+{_md_table(cover_tab, values=("cover",))}
 
-## 2. Species mapping and forest-loss accounting
+## 2. Cartografía de especies e contabilidade da perda forestal
 
-- Spatial-block CV accuracy **{clf.spatial_cv_accuracy:.3f}** vs random CV {clf.random_cv_accuracy:.3f}
-  (the gap is the optimism of non-spatial validation). Kappa {clf.kappa:.3f}.
+- Exactitude con validación cruzada por bloques espaciais **{num(clf.spatial_cv_accuracy, 3)}**
+  fronte a {num(clf.random_cv_accuracy, 3)} con validación cruzada aleatoria (a diferenza é o
+  optimismo dunha validación non espacial). Kappa {num(clf.kappa, 3)}.
 
-{_md_table(lc["area"][["name", "map_area_ha", "est_area_ha", "ci95_ha", "true_area_ha", "users_accuracy", "producers_accuracy"]], 5)}
+{_md_table(lc["area"][["name", "map_area_ha", "est_area_ha", "ci95_ha", "true_area_ha", "users_accuracy", "producers_accuracy"]], 5, values=("name",))}
 
-![area](area_species.png)
+![superficie por especie](area_species.png)
 
-Change areas (map differencing compounds two maps' errors; the stratified estimator corrects it):
+Superficies de cambio. A diferenza entre dous mapas acumula os erros de ambos, e o estimador
+estratificado corríxeo:
 
-{_md_table(lc["change"][["name", "map_area_ha", "est_area_ha", "ci95_ha", "true_area_ha"]], 5)}
+{_md_table(lc["change"][["name", "map_area_ha", "est_area_ha", "ci95_ha", "true_area_ha"]], 5, values=("name",))}
 
-![change](area_change.png)
+![superficie de cambio](area_change.png)
 
-Tree-cover loss attribution (cell-fraction units):
+Atribución da perda de cuberta arbórea (en fraccións de cela):
 
-{_md_table(res["loss_attribution"])}
+{_md_table(res["loss_attribution"], values=("driver",))}
 
-Conversion driver model: spatial-CV R² {res["conversion"]["spatial_cv_r2"]:.3f}.
+Modelo de factores da conversión: R² en validación cruzada espacial
+{num(res["conversion"]["spatial_cv_r2"], 3)}.
 
-![drivers](conversion_drivers.png)
+![factores da conversión](conversion_drivers.png)
 
-## 3. Fire
+## 3. Incendios
 
-Susceptibility: spatial-CV AUC **{fs["spatial_cv_auc"]:.3f}**, Brier {fs["brier"]:.4f},
-base rate {fs["base_rate"]:.4f}.
+Susceptibilidade: AUC en validación cruzada espacial **{num(fs["spatial_cv_auc"], 3)}**,
+puntuación de Brier {num(fs["brier"], 3)} e taxa base {num(fs["base_rate"], 3)}.
 
-![calibration](fire_calibration.png)
+![calibración](fire_calibration.png)
 
-## 4. Water
+## 4. Auga
 
-Budyko (Fu) parameters (estimate, SE; truth w_euc = {land.truth.w_euc}):
-`{json.dumps({k: [round(v[0], 3), round(v[1], 3)] for k, v in water["budyko_params"].items()})}`
+Parámetros da curva de Budyko (Fu). O valor real de w eucalipto é {num(tp.w_euc)}.
 
-Matching balance (share of treated dropped for lack of overlap:
-{bal.attrs.get("dropped_share", float("nan")):.2f}):
+{_md_table(budyko_tab)}
 
-{_md_table(bal)}
+Equilibrio do emparellamento. Proporción de celas tratadas descartadas por falta de
+solapamento: {num(bal.attrs.get("dropped_share", float("nan")), 2)}.
+
+{_md_table(bal, values=("feature",))}
 
 {robustness_md}
 
-## 5. Policy scenarios to {res["config"].scenarios.horizon}
+## 5. Escenarios de política ata {horizon}
 
-Horizon-year contrasts vs BAU: the simulated world (truth) next to the projection from the
-estimated causal effects (per-class DML effects, risk-weighted, for fire; the fitted Budyko curve
-for runoff). Small contrasts, such as the cap, are within simulation noise, so read their sign
-with care.
+Contrastes no ano horizonte fronte ao escenario tendencial: o mundo simulado (valor real) xunto á
+proxección feita cos efectos causais estimados (efectos DML por clase, ponderados polo risco, para
+os incendios; a curva de Budyko axustada para a escorrentía). Os contrastes pequenos, como o do
+límite, quedan dentro do ruído da simulación, así que o seu signo debe lerse con cautela.
 
-{_md_table(scen["contrasts"], 4)}
+{_md_table(scen["contrasts"], 4, values=("scenario",))}
 
-![scenarios](scenarios.png)
-"""
+![escenarios](scenarios.png)
+
+{GLOSSARY}"""
     path = out / "report.md"
     path.write_text(md)
     return path

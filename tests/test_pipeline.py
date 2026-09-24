@@ -1,5 +1,7 @@
 import json
+import re
 
+from eucalyptus_impact import i18n_gl
 from eucalyptus_impact.data.catalog import catalog_frame
 from eucalyptus_impact.pipeline import effect_table, run
 from eucalyptus_impact.reporting import write_report
@@ -47,3 +49,68 @@ def test_end_to_end(tiny_cfg, tiny_land, tmp_path):
     ):
         assert (tmp_path / f).exists()
     assert json.loads((tmp_path / "metrics.json").read_text())["land_cells"] == tiny_land.n
+    _assert_galician_only(path.read_text())
+
+
+ENGLISH = {
+    "the",
+    "and",
+    "of",
+    "with",
+    "from",
+    "to",
+    "is",
+    "are",
+    "by",
+    "vs",
+    "truth",
+    "estimate",
+    "effect",
+    "effects",
+    "share",
+    "report",
+    "fire",
+    "burn",
+    "burned",
+    "runoff",
+    "eucalyptus",
+    "native",
+    "broadleaf",
+    "shrub",
+    "pine",
+    "scenario",
+    "restoration",
+    "targeted",
+    "random",
+    "yes",
+    "map",
+    "area",
+    "change",
+    "water",
+    "soil",
+    "moisture",
+    "coast",
+    "low",
+    "high",
+    "method",
+    "naive",
+    "matching",
+    "balance",
+    "sensitivity",
+    "robustness",
+}
+
+
+def _assert_galician_only(text: str):
+    """No untranslated identifier and no common English word in the report prose."""
+    assert not i18n_gl.MISSING, f"untranslated labels: {sorted(i18n_gl.MISSING)}"
+    prose = re.sub(r"\(([\w./-]+\.png)\)", "", text)  # image file names
+    prose = re.sub(r"`[^`]*`", "", prose)  # inline code (file paths)
+    words = {w.lower() for w in re.findall(r"[^\W\d_]+", prose)}
+    assert not words & ENGLISH, f"English words in report: {sorted(words & ENGLISH)}"
+
+
+def test_galician_number_format():
+    assert i18n_gl.num(0.02209) == "0,02209"
+    assert i18n_gl.num(-35872.76) == "-35 873"
+    assert i18n_gl.num(1234.5) == "1 234"

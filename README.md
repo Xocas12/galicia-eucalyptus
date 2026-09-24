@@ -4,7 +4,7 @@ Machine learning and geospatial intelligence to measure what eucalyptus plantati
 to **native forest**, **wildfire** and **water**, and what alternative forest plans would change.
 
 - **Scope, estimands, data inventory and threats to validity:** [`docs/SCOPE.md`](docs/SCOPE.md)
-- **Latest synthetic validation report (1 km, 2000–2024):** [`docs/synthetic_validation/report.md`](docs/synthetic_validation/report.md)
+- **Latest synthetic validation report (1 km, 2000–2024), in Galician:** [`docs/synthetic_validation/report.md`](docs/synthetic_validation/report.md)
 
 > **No real-data result exists yet.** The pipeline currently runs on a *synthetic* Galicia-like
 > landscape with hand-set causal effects, to prove the estimators recover known answers before
@@ -19,13 +19,14 @@ Self-contained subproject: it shares nothing with `gosplan/` at the repository r
 ```bash
 cd galicia-eucalyptus
 uv venv && uv pip install -e '.[dev]'          # add '.[geo]' for real-data ingestion
-.venv/bin/pytest                                # 34 tests, ~2.5 min
+.venv/bin/pytest                                # 35 tests, ~2.5 min
 .venv/bin/euc run --config configs/fast.yaml    # 4 km smoke run, ~1 min  -> outputs/fast/
 .venv/bin/euc run --config configs/default.yaml # 1 km full run, ~6 min   -> outputs/default/
 .venv/bin/euc catalog                           # the real data sources
 ```
 
-Each run writes `report.md`, `metrics.json`, CSV tables, figures and a restoration-priority
+Each run writes `report.md` (in Galician: prose, tables and figures; enforced by a test),
+`metrics.json`, CSV tables, figures and a restoration-priority
 map (`restoration_priority.csv`, plus a GeoTIFF in EPSG:25829 when the `geo` extra is installed)
 to its `output_dir`.
 
