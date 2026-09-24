@@ -106,13 +106,15 @@ class DropEmptyColumns:
 
 
 def make_classifier(seed=0):
-    return HistGradientBoostingClassifier(
-        max_iter=300,
-        learning_rate=0.08,
-        max_leaf_nodes=63,
-        l2_regularization=1.0,
-        class_weight="balanced",
-        random_state=seed,
+    return DropEmptyColumns(
+        HistGradientBoostingClassifier(
+            max_iter=300,
+            learning_rate=0.08,
+            max_leaf_nodes=63,
+            l2_regularization=1.0,
+            class_weight="balanced",
+            random_state=seed,
+        )
     )
 
 
