@@ -151,6 +151,80 @@ def project(land: Landscape, spec: ScenarioSpec, horizon: int, sel: np.ndarray |
     return rows
 
 
+def dynamic_synthetic(land: Landscape, results: dict, cfg, sel: dict) -> dict:
+    """Estimate the dynamic components from a 7-year two-map window and project each scenario."""
+    from .dynamic import COVER, estimate_components, project
+
+    years = land.years
+    y1 = years[-1]
+    y0 = max(years[0], y1 - 7)
+    t0, t1 = years.index(y0), years.index(y1)
+    st = land.static
+    cells = pd.DataFrame(
+        {
+            "elev": st["elev"],
+            "slope": st["slope"],
+            "continentality": st["continentality"],
+            "dist_mill_km": st["dist_mill_km"],
+            "dist_road_km": st["dist_road_km"],
+            "log_pop": np.log(st["pop_density"]),
+            "precip_mean": st["precip_mean"],
+            "block": land.block,
+        }
+    )
+    cells["neigh_euc"] = neighbour_mean(
+        land.cover_obs[t0, :, EUC], land.land, land.land_idx, land.grid.resolution_m
+    )
+    for j, c in enumerate(COVER):
+        cells[c] = land.cover_obs[t0, :, j]
+        cells[c + "_end"] = land.cover_obs[t1, :, j]
+    # Burned share: burn events times the mean burned share of a burning cell (0.5 here).
+    cells["burned_share"] = 0.5 * land.burned[t0 + 1 : t1 + 1].sum(axis=0)
+    fire_fit = results["fire_susceptibility"]
+    p_base = fire_fit["model"].predict_proba(
+        final_year_features(land, fire_fit["features"]).to_numpy()
+    )[:, 1]
+    ce = results["fire_effects"]["cover_effects"]
+    theta = np.array([ce[c].estimate if c in ce else 0.0 for c in COVER])
+    theta_se = np.array([ce[c].se if c in ce else 0.0 for c in COVER])
+    rates = land.burned.mean(axis=1)
+    weather = rates / rates.mean()
+    comp = estimate_components(
+        cells,
+        t1 - t0,
+        [
+            "elev",
+            "slope",
+            "continentality",
+            "dist_mill_km",
+            "dist_road_km",
+            "log_pop",
+            "precip_mean",
+            "neigh_euc",
+        ],
+        p_base,
+        theta,
+        0.5,
+        weather,
+        seed=cfg.seed,
+        n_folds=cfg.causal.n_folds,
+    )
+    horizon = cfg.scenarios.horizon - years[-1]
+    f0 = land.cover_obs[-1]
+    kw = dict(cell_area_ha=land.cell_area_ha(), n_sims=20, seed=cfg.seed, theta_se=theta_se)
+    trajs = {
+        "BAU": project(f0, comp, horizon, "bau", **kw),
+        "Cap / moratorium": project(f0, comp, horizon, "cap", **kw),
+        "Targeted restoration": project(
+            f0, comp, horizon, "restore", sel["targeted"].astype(float), **kw
+        ),
+        "Random restoration": project(
+            f0, comp, horizon, "restore", sel["random"].astype(float), **kw
+        ),
+    }
+    return {"components": comp, "trajectories": trajs}
+
+
 def run_scenarios(land: Landscape, results: dict, cfg) -> dict:
     fire_fit = results["fire_susceptibility"]
     rng = np.random.default_rng(cfg.seed + 7)
@@ -226,9 +300,26 @@ def run_scenarios(land: Landscape, results: dict, cfg) -> dict:
                 "d_runoff_mm_model": q_hat(final_f[spec.name]) - q_hat(final_f["BAU"]),
             }
         )
+    dyn = dynamic_synthetic(land, results, cfg, sel)
+    comp = pd.DataFrame(comp)
+    # Period means (2025 to horizon) are compared, not the horizon year alone, whose weather draw
+    # differs between the simulator and the dynamic engine.
+    sim_mean = mean_traj.groupby("scenario")["expected_burned_ha"].mean()
+    dyn_mean = {k: v["expected_burned_ha"].mean() for k, v in dyn["trajectories"].items()}
+    comp.insert(
+        comp.columns.get_loc("d_burned_ha_model") + 1,
+        "d_burned_ha_mean_simulated",
+        [sim_mean[s] - sim_mean["BAU"] for s in comp["scenario"]],
+    )
+    comp.insert(
+        comp.columns.get_loc("d_burned_ha_mean_simulated") + 1,
+        "d_burned_ha_mean_dynamic",
+        [dyn_mean[s] - dyn_mean["BAU"] for s in comp["scenario"]],
+    )
     return {
         "trajectories": mean_traj,
-        "contrasts": pd.DataFrame(comp),
+        "contrasts": comp,
+        "dynamic": dyn,
         "priority_score": score,
         "selected_targeted": sel["targeted"],
     }

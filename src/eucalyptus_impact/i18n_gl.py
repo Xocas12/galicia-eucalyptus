@@ -119,6 +119,8 @@ GL: dict[str, str] = {
     "d_burned_ha_model": "Δ queimado modelo (ha/ano)",
     "d_runoff_mm_simulated": "Δ escorrentía simulada (mm)",
     "d_runoff_mm_model": "Δ escorrentía modelo (mm)",
+    "d_burned_ha_mean_simulated": "Δ queimado medio simulado (ha/ano)",
+    "d_burned_ha_mean_dynamic": "Δ queimado medio dinámico (ha/ano)",
     "cover": "cuberta",
     "dP(burn)/dshare": "dP(queima)/dfracción",
     "parameter": "parámetro",

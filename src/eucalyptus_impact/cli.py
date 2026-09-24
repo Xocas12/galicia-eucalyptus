@@ -19,8 +19,27 @@ def main(argv=None) -> int:
     r.add_argument("--config", default="configs/fast.yaml")
     r.add_argument("--out", default=None, help="override output_dir from the config")
     sub.add_parser("catalog", help="list the real data sources")
+    rl = sub.add_parser("real", help="real-data pipeline for Galicia (downloads, then analysis)")
+    rl.add_argument("stage", choices=["fetch", "run", "all"], nargs="?", default="all")
+    rl.add_argument("--out", default="outputs/real")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
+
+    if args.cmd == "real":
+        from .real.layers import all_layers
+        from .real.s2 import build_period
+
+        if args.stage in ("fetch", "all"):
+            all_layers()
+            for period in ("2024", "2017"):
+                build_period(period)
+        if args.stage in ("run", "all"):
+            from .real.analysis import run_real
+            from .real.brief import write_brief
+
+            path = write_brief(run_real(), args.out)
+            print(f"brief written to {path}")
+        return 0
 
     if args.cmd == "catalog":
         from .data.catalog import catalog_frame

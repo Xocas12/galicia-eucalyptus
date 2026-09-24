@@ -566,6 +566,9 @@ Contrastes no ano horizonte fronte ao escenario tendencial: o mundo simulado (va
 proxección feita cos efectos causais estimados (efectos DML por clase, ponderados polo risco, para
 os incendios; a curva de Budyko axustada para a escorrentía). Os contrastes pequenos, como o do
 límite, quedan dentro do ruído da simulación, así que o seu signo debe lerse con cautela.
+As dúas últimas columnas de queimados comparan as medias anuais de todo o período: a simulada e a
+do motor dinámico ano a ano, que estima os seus compoñentes só con dous mapas e o historial de
+queimados, como se fai cos datos reais.
 
 {_md_table(scen["contrasts"], 4, values=("scenario",))}
 

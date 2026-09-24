@@ -177,7 +177,7 @@ has the ingestion adapters. The adapters are written but **have not been run fro
 | M0 | Scope (this document), repo skeleton, data catalog | done |
 | M1 | Synthetic simulator with known effects, full pipeline end to end, tests | done |
 | M1b | Robustness: group effects, OVB sensitivity, SIMEX, cluster-size SEs; adapter tests on fixtures | done |
-| M2 | Real-data ingestion: Sentinel-2 composites, MFE/IFN labels, EFFIS, gauges → 1 km panel | adapters written and fixture-tested, not yet run live |
-| M3 | Species map 2017–present, Landsat back-cast to 2000, Olofsson areas | pending data |
-| M4 | Causal estimates on real data, robustness and placebo tests | pending M3 |
-| M5 | Scenario projections, restoration priority map, policy brief | pending M4 |
+| M2 | Real-data ingestion → 1 km panel | in progress: object-storage sources (Sentinel-2, WorldCover, Copernicus DEM, Hansen GFC, EFFIS severity, Overture/OSM, GHCN) ingested; MFE/IFN labels and gauges unreachable here |
+| M3 | Species maps 2017 and 2024, error-adjusted areas, 2017→2024 conversion | in progress (OSM-derived labels, not MFE/IFN) |
+| M4 | Causal fire estimates on real data with robustness | in progress (fire); water not estimable without gauges |
+| M5 | Year-by-year projections, restoration priority map, policy brief | in progress: dynamic engine written and validated on the simulator |
