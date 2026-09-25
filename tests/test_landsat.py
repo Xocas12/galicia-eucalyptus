@@ -1,4 +1,4 @@
-"""Landsat back-cast helpers: cloud mask, scene choice, quantile matching."""
+"""Landsat back-cast helpers: cloud mask and scene choice."""
 
 import numpy as np
 import pandas as pd
@@ -51,12 +51,3 @@ def test_choose_scenes_prefers_clear_and_avoids_slc_off():
     summer = sc[sc["season"] == "summer"]["PRODUCT_ID"].tolist()
     assert summer == ["p2", "p0"]
     assert sc[sc["season"] == "winter"]["PRODUCT_ID"].tolist() == ["p4"]
-
-
-def test_quantile_match_maps_distribution_onto_reference():
-    rng = np.random.default_rng(0)
-    ref = rng.normal(0.6, 0.1, (1, 60, 60)).astype("float16")
-    src = (ref.astype("float32") * 0.8 - 0.05).astype("float16")  # older sensor: gain and bias
-    mask = np.ones((60, 60), bool)
-    out = LS.quantile_match(src, ref, mask, n=3600)
-    assert np.nanmax(np.abs(out.astype("float32") - ref.astype("float32"))) < 0.01

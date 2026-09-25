@@ -11,10 +11,8 @@ reflectance, cloud-masked with the BQA band, turned into NDVI, NDMI and NBR, rep
 indices and their summer-winter differences. Eucalyptus is evergreen and stays moist in winter,
 which this seasonal contrast captures.
 
-A classifier is trained on the 2017 epoch (Landsat 7/8, 2016-2018) against the Sentinel-2 map on
-pixels that are confident and undisturbed (same class in both Sentinel-2 maps, no Hansen loss
-2001-2024, no EFFIS fire), and applied to the earlier epochs after quantile-matching each
-feature to 2017 on pixels with no recorded loss. The 2000 epoch is checked against the IFN3
+A classifier is trained in each epoch on the same pixels: confident and undisturbed in the
+Sentinel-2 maps (same class in both, no Hansen loss 2001-2024, no EFFIS fire). The 2000 epoch is checked against the IFN3
 inventory plots, which were surveyed around 1998.
 """
 
@@ -242,37 +240,21 @@ def stable_training_mask(conf: int = 70) -> np.ndarray:
     return (c17 == c24) & (c24 < 6) & (sp["pmax40_2024"] >= conf) & (ly == 0) & ~burnt
 
 
-def quantile_match(
-    src: np.ndarray, ref: np.ndarray, mask: np.ndarray, n: int = 200_000, seed: int = 0
-):
-    """Map each feature of `src` onto the distribution of `ref` over `mask` pixels (piecewise
-    linear between 201 quantiles), as for the Sentinel-2 2017 normalisation."""
-    rng = np.random.default_rng(seed)
-    r, c = np.nonzero(mask)
-    take = rng.choice(len(r), min(n, len(r)), replace=False)
-    r, c = r[take], c[take]
-    q = np.linspace(0, 1, 201)
-    out = np.empty(src.shape, "float16")
-    for k in range(src.shape[0]):
-        a = src[k, r, c].astype("float32")
-        b = ref[k, r, c].astype("float32")
-        ok = np.isfinite(a) & np.isfinite(b)
-        qa, qb = np.quantile(a[ok], q), np.quantile(b[ok], q)
-        for r0 in range(0, src.shape[1], 800):
-            blk = src[k, r0 : r0 + 800].astype("float32")
-            out[k, r0 : r0 + 800] = np.where(
-                np.isfinite(blk), np.interp(blk, qa, qb), np.nan
-            ).astype("float16")
-    return out
-
-
 def _X(F, rows, cols) -> np.ndarray:
     return np.asarray(F[:, rows, cols], dtype="float32").T
 
 
-@cached_npz("landsat_maps")
+@cached_npz("landsat_maps_v2")
 def landsat_maps(per_class: int = 20_000, seed: int = 0, n_folds: int = 5):
-    """Class maps (40 m) for each epoch, plus spatial-CV metrics of the 2017 fit."""
+    """Class maps (40 m) for each epoch, each from a classifier trained in its own epoch.
+
+    Training pixels are the same in every epoch: confident, unchanged Sentinel-2 pixels with no
+    Hansen loss 2001-2024 and no fire, which were very probably the same class in 2000 and
+    2010 (for 1990 the assumption is weaker: Hansen does not reach back that far). Training
+    per epoch avoids cross-sensor normalisation; an earlier version trained on 2017 and
+    quantile-matched older epochs onto it, which also matched away real cover change (the
+    eucalyptus area came out flat, 523-572 kha, 1990-2017).
+    """
     from sklearn.metrics import accuracy_score, f1_score
 
     from ..geo.grid import block_ids
@@ -283,25 +265,23 @@ def landsat_maps(per_class: int = 20_000, seed: int = 0, n_folds: int = 5):
     aoi = np.load(INTERIM / "aoi.npz")["mask40"].astype(bool)
     stable = stable_training_mask() & aoi
     lab = np.where(stable, sp["class40_2024"], 255).astype("uint8")
-    F17 = epoch_features("2017")
-    rows, cols, y = sample_training(lab, per_class, seed)
-    X = _X(F17, rows, cols)
-    ok = np.isfinite(X).sum(1) >= 6
-    rows, cols, y, X = rows[ok], cols[ok], y[ok], X[ok]
-    blocks = block_ids(GRID_40M, 20)[rows, cols]
-    cvp = np.empty_like(y)
-    for tr, te in SpatialBlockKFold(n_folds, seed).split(groups=blocks):
-        cvp[te] = make_classifier(seed).fit(X[tr], y[tr]).predict(X[te])
-    model = make_classifier(seed).fit(X, y)
-    out = {
-        "cv_accuracy": np.array(accuracy_score(y, cvp)),
-        "cv_f1": np.array(f1_score(y, cvp, labels=range(6), average=None, zero_division=0)),
-    }
-    ly = np.load(INTERIM / "hansen.npz")["lossyear40"]
-    no_loss = aoi & (ly == 0)
+    rows0, cols0, y0 = sample_training(lab, per_class, seed)
+    blocks0 = block_ids(GRID_40M, 20)[rows0, cols0]
     ny, nx = GRID_40M.shape
+    out = {}
     for epoch in EPOCHS:
-        F = F17 if epoch == "2017" else quantile_match(epoch_features(epoch), F17, no_loss)
+        F = epoch_features(epoch)
+        X = _X(F, rows0, cols0)
+        ok = np.isfinite(X).sum(1) >= 6
+        X, y, blocks = X[ok], y0[ok], blocks0[ok]
+        cvp = np.empty_like(y)
+        for tr, te in SpatialBlockKFold(n_folds, seed).split(groups=blocks):
+            cvp[te] = make_classifier(seed).fit(X[tr], y[tr]).predict(X[te])
+        out[f"cv_accuracy_{epoch}"] = np.array(accuracy_score(y, cvp))
+        out[f"cv_f1_{epoch}"] = np.array(
+            f1_score(y, cvp, labels=range(6), average=None, zero_division=0)
+        )
+        model = make_classifier(seed).fit(X, y)
         cls = np.full((ny, nx), 255, "uint8")
         for r0 in range(0, ny, 200):
             rr, cc = np.nonzero(aoi[r0 : r0 + 200])
@@ -313,12 +293,12 @@ def landsat_maps(per_class: int = 20_000, seed: int = 0, n_folds: int = 5):
         out[f"class40_{epoch}"] = cls
         v = cls[aoi]
         log.info(
-            "landsat %s: eucalyptus %.0f kha, %.1f%% of AOI unclassified",
+            "landsat %s: CV accuracy %.3f, eucalyptus F1 %.2f, eucalyptus %.0f kha",
             epoch,
+            out[f"cv_accuracy_{epoch}"],
+            out[f"cv_f1_{epoch}"][0],
             (v == 0).sum() * 0.16 / 1e3,
-            100 * (v == 255).mean(),
         )
-    log.info("landsat 2017 fit: spatial-CV accuracy %.3f, F1 %s", out["cv_accuracy"], out["cv_f1"])
     return out
 
 

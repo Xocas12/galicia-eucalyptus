@@ -714,7 +714,7 @@ def water_analysis(seed: int = 0, reps: int = 200) -> dict:
     out["power"] = ps.to_dict(orient="records")
     out["mde"] = minimum_detectable(ps).to_dict(orient="records")
     out["power_map_error"] = ps_err.to_dict(orient="records")
-    if (INTERIM / "landsat_maps.npz").exists():
+    if (INTERIM / "landsat_maps_v2.npz").exists():
         out["long"] = long_history_study(info, members, seed=seed, reps=reps)
 
     g = load_gauges()
