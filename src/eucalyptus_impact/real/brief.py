@@ -189,6 +189,9 @@ def _water_section(w: dict | None) -> str:
     pw = pw[(pw["estimator"] == "TWFE") & (pw["n_catchments"] == pw["n_catchments"].max())][
         ["change_scale", "true_mm_per_10pts", "mean_estimate", "bias", "coverage", "power"]
     ]
+    e6 = err[(err["change_scale"] == err["change_scale"].max()) & (err["true_mm_per_10pts"] != 0)]
+    ratio = float(e6["mean_estimate"].iloc[0] / e6["true_mm_per_10pts"].iloc[0])
+    detectable = m79 <= 20
     g = w.get("gauges")
     if g and "runoff_mm_per_10pts" in g:
         e, se = g["runoff_mm_per_10pts"]
@@ -223,7 +226,9 @@ O que si se fixo é preparar e validar o deseño con datos reais agás os caudai
   erro do 8 % por conca e ano), e estimouse o efecto co mesmo modelo de efectos fixos dobres,
   200 veces por caso. O estimador non ten nesgo e o seu IC 95 % cobre o valor real, pero coas
   {c["n"]} concas o efecto mínimo detectable (potencia do 80 %) é de
-  **{num(m79, 3)} mm/ano por 10 puntos** de eucalipto, moito máis ca un efecto plausible.
+  **{num(m79, 3)} mm/ano por 10 puntos** de eucalipto. Aquí suponse que un efecto plausible, de
+  substituír frondosas por eucalipto, é de 10–20 mm/ano por 10 puntos (100–200 mm/ano nunha
+  conca enteira).
   «Cambio de cuberta × 3» ou «× 6» simula un historial máis longo (por exemplo, mapas desde os
   anos noventa con Landsat), que é o que faría detectable un efecto de 10–20 mm/ano.
 
@@ -240,9 +245,24 @@ retrodatado):
 
 {_md_table(err, 3)}
 
-Conclusión: **cos mapas dispoñibles (2017 e 2024), nin sequera cos aforos se podería medir o
-efecto do eucalipto sobre o caudal anual**. Fai falta un historial de cuberta máis longo, ou
-ben un deseño de concas pareadas."""
+O erro de mapa pesa tanto coma o ruído: coa mesma conca e o mesmo caudal, cambiar de versión
+do mapa multiplica a estimación por {num(ratio, 2)} (e a cobertura do IC cae). Por iso calquera
+estimación con aforos debería repetirse coas dúas versións do mapa, como se fai cos incendios.
+
+{_water_conclusion(detectable)}"""
+
+
+def _water_conclusion(detectable: bool) -> str:
+    if detectable:
+        return (
+            "Conclusión: cos mapas dispoñibles, os aforos permitirían detectar un efecto "
+            "plausible (arredor de 20 mm/ano por 10 puntos)."
+        )
+    return (
+        "Conclusión: **cos mapas dispoñibles (2017 e 2024), nin sequera cos aforos se podería "
+        "medir o efecto do eucalipto sobre o caudal anual**. Fai falta un historial de cuberta "
+        "máis longo (Landsat desde os anos noventa) ou un deseño de concas pareadas."
+    )
 
 
 def _fig_maps(res: dict, path: Path):
