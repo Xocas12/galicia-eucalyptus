@@ -27,7 +27,7 @@ import pandas as pd
 from sklearn.ensemble import HistGradientBoostingClassifier
 from sklearn.metrics import accuracy_score, cohen_kappa_score, confusion_matrix, f1_score
 
-from ..features.spectral import harmonic_features
+from ..features.spectral import _design, harmonic_features, harmonic_fit
 from ..geo.grid import block_ids
 from ..validation.spatial_cv import SpatialBlockKFold
 from .common import FINE_PER_CELL, GRID_1KM, GRID_40M, INTERIM, cached_npz, log
@@ -60,13 +60,25 @@ def training_labels(L: dict, period: str) -> np.ndarray:
 
 
 def _pixels_features(cube, rows, cols) -> np.ndarray:
+    """Harmonic phenology summary plus gap-filled monthly values for the given pixels.
+
+    Cloud gaps are filled from each pixel's own fitted annual curve, and the clear-observation
+    share is dropped. Otherwise the pattern of missing months, which follows each Sentinel-2
+    tile's acquisition footprint, lets the classifier recognise the tile. With 91% of the
+    eucalyptus labels inside one 100 km square, it did exactly that, and the 2017 map showed a
+    tile-shaped block.
+    """
     series = np.asarray(cube[:, :, rows, cols], dtype="float32")  # (12, 3, n)
     series = np.transpose(series, (2, 0, 1))  # (n, 12, 3)
-    F, _ = harmonic_features(series, MONTHS)
-    # Raw monthly values as well (NaN where cloudy; gradient boosting handles missing values).
-    # They add ~3 points of spatial-CV accuracy over the harmonic summary alone, mostly on the
-    # eucalyptus / native broadleaf split (checked on a 48k-pixel 2024 sample: 0.758 -> 0.788).
-    return np.column_stack([F, series.reshape(len(series), -1)])
+    F, names = harmonic_features(series, MONTHS)
+    F = F[:, [k for k, nm in enumerate(names) if nm != "clear_share"]]
+    X = _design(MONTHS, 2)
+    filled = np.empty_like(series)
+    for b in range(series.shape[2]):
+        coef = harmonic_fit(series[:, :, b], MONTHS)
+        curve = coef @ X.T
+        filled[:, :, b] = np.where(np.isfinite(series[:, :, b]), series[:, :, b], curve)
+    return np.column_stack([F, filled.reshape(len(filled), -1)])
 
 
 def sample_training(lab: np.ndarray, per_class: int, seed: int):
@@ -128,6 +140,12 @@ def train_period(period: str, per_class: int = 30_000, seed: int = 0, n_folds: i
     cv_pred = np.empty_like(y)
     for tr, te in SpatialBlockKFold(n_folds, seed).split(groups=blocks):
         cv_pred[te] = make_classifier(seed).fit(X[tr], y[tr]).predict(X[te])
+    # Stricter transfer check: hold out whole 100 km squares (how well the map carries to
+    # regions whose labels it never saw).
+    sq = block_ids(GRID_40M, 100)[rows, cols]
+    reg_pred = np.empty_like(y)
+    for tr, te in SpatialBlockKFold(min(5, len(np.unique(sq))), seed).split(groups=sq):
+        reg_pred[te] = make_classifier(seed).fit(X[tr], y[tr]).predict(X[te])
     model = make_classifier(seed).fit(X, y)
     labels = np.arange(6)
     metrics = {
@@ -137,12 +155,17 @@ def train_period(period: str, per_class: int = 30_000, seed: int = 0, n_folds: i
         "kappa": float(cohen_kappa_score(y, cv_pred)),
         "f1": f1_score(y, cv_pred, labels=labels, average=None, zero_division=0).tolist(),
         "confusion": confusion_matrix(y, cv_pred, labels=labels).tolist(),
+        "region_cv_accuracy": float(accuracy_score(y, reg_pred)),
+        "region_cv_f1": f1_score(
+            y, reg_pred, labels=labels, average=None, zero_division=0
+        ).tolist(),
     }
     log.info(
-        "species %s: spatial-CV accuracy %.3f, F1 %s",
+        "species %s: spatial-CV accuracy %.3f, F1 %s; 100 km-square CV F1 %s",
         period,
         metrics["spatial_cv_accuracy"],
         np.round(metrics["f1"], 2),
+        np.round(metrics["region_cv_f1"], 2),
     )
     return model, metrics, (y, cv_pred)
 
