@@ -130,42 +130,179 @@ def make_classifier(seed=0):
     )
 
 
-def train_period(period: str, per_class: int = 30_000, seed: int = 0, n_folds: int = 5):
+NORTH_SQUARE = 548  # 100 km square (easting 500-600 km, northing 4800-4900 km) holding the OSM
+# eucalyptus labels: A Coruna, Ferrol, Ortegal.
+WINTER, SUMMER = [2, 3, 4], [8, 9, 10]  # Dec-Feb and Jun-Aug in the Oct-Sep cube
+
+
+def _square(rows, cols) -> np.ndarray:
+    x, y = GRID_40M.centers()
+    return (x[rows, cols] // 1e5).astype(int) * 100 + (y[rows, cols] // 1e5).astype(int)
+
+
+def winter_metrics(cube, rows, cols):
+    """Winter NDVI, winter NDMI and summer NDVI (monthly medians) for the given pixels."""
+    import warnings
+
+    raw = np.asarray(cube[:, :, rows, cols], dtype="float32")
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        return (
+            np.nanmedian(raw[WINTER, 0], 0),
+            np.nanmedian(raw[WINTER, 1], 0),
+            np.nanmedian(raw[SUMMER, 0], 0),
+        )
+
+
+def harvest_share(L: dict) -> np.ndarray:
+    """Share of 2001-2016 Hansen stand-replacing loss within ~280 m (7x7 pixels at 40 m).
+
+    Pre-2017 only, so it cannot carry the 2018-2023 fire outcomes into the exposure map.
+    """
+    from scipy import ndimage
+
+    ly = L["hansen"]["lossyear40"].astype(int)
+    return ndimage.uniform_filter(((ly >= 1) & (ly <= 16)).astype("float32"), 7)
+
+
+def clean_mask(cube, L, rows, cols, y) -> np.ndarray:
+    """Keep only labels consistent with each class's winter behaviour.
+
+    Galician eucalyptus is evergreen broadleaf. OSM "eucalyptus" pixels that lose greenness in
+    winter are mislabelled or cleared, and "native broadleaf" pixels that stay green and moist
+    through winter in harvested stands are very likely eucalyptus. Checked on 2024: southern
+    OSM eucalyptus labels had native-like winter profiles.
+    """
+    w0, w1, s0 = winter_metrics(cube, rows, cols)
+    drop = s0 - w0
+    h = harvest_share(L)[rows, cols]
+    keep = np.ones(len(y), bool)
+    keep[(y == 0) & ~((w0 >= 0.7) & (drop < 0.12))] = False
+    keep[(y == 2) & ~((drop >= 0.12) | (w1 < 0.2))] = False
+    keep[(y == 1) & (w1 >= 0.4) & (drop < 0.1) & (h >= 0.2)] = False
+    return keep
+
+
+def pseudo_eucalyptus_2024(L, per_square: int = 8000, candidates: int = 80_000, seed: int = 0):
+    """Eucalyptus pseudo-labels across Galicia from 2024 imagery and harvest history.
+
+    Rule: tree cover (WorldCover), evergreen (winter NDVI >= 0.75, summer-winter NDVI drop <
+    0.1), moist in winter (winter NDMI >= 0.4, which separates it from pine), and in a harvested
+    neighbourhood (>= 20% of pixels within ~280 m lost 2001-2016, the short-rotation plantation
+    regime native forest lacks). Sampled evenly per 100 km square so no region dominates.
+    """
+    cube = build_period("2024")
+    lab = L["osm"]["label40"]
+    cond = (L["aoi"]["mask40"] == 1) & (L["worldcover"]["wc40"] == 10) & (lab == 255)
+    rr, cc = np.nonzero(cond)
+    sq = _square(rr, cc)
+    h = harvest_share(L)
+    rng = np.random.default_rng(seed)
+    out_r, out_c = [], []
+    for s_ in np.unique(sq):
+        idx = np.flatnonzero(sq == s_)
+        idx = rng.choice(idx, min(candidates, len(idx)), replace=False)
+        r, c = rr[idx], cc[idx]
+        w0, w1, s0 = winter_metrics(cube, r, c)
+        ok = (w0 >= 0.75) & (w1 >= 0.4) & (s0 - w0 < 0.1) & (h[r, c] >= 0.2)
+        out_r.append(r[ok][:per_square])
+        out_c.append(c[ok][:per_square])
+    return np.concatenate(out_r), np.concatenate(out_c)
+
+
+def build_training(period: str, per_class: int, seed: int, exclude_square: int | None = None):
+    """OSM labels cleaned by winter behaviour, plus Galicia-wide eucalyptus pseudo-labels.
+
+    For 2017 the 2024 pseudo-labels are reused where the pixel is stable between the two maps
+    (no Hansen loss 2017-2024, no EFFIS burn 2018-2023), as with the OSM labels. Returns rows,
+    cols, labels and source (0 = OSM, 1 = pseudo-label).
+    """
     L = all_layers()
     cube = build_period(period)
     lab = training_labels(L, period)
-    rows, cols, y = sample_training(lab, per_class, seed)
+    r, c, y = sample_training(lab, per_class, seed)
+    keep = clean_mask(cube, L, r, c, y)
+    r, c, y = r[keep], c[keep], y[keep]
+    pr, pc = pseudo_eucalyptus_2024(L, seed=seed)
+    if period == "2017":
+        ly = L["hansen"]["lossyear40"][pr, pc]
+        stable = ~((ly >= 17) & (ly <= 24))
+        for yr in range(2018, 2024):
+            stable &= ~L["effis"][f"burned40_{yr}"][pr, pc].astype(bool)
+        pr, pc = pr[stable], pc[stable]
+    rows, cols = np.concatenate([r, pr]), np.concatenate([c, pc])
+    y = np.concatenate([y, np.zeros(len(pr), int)])
+    src = np.concatenate([np.zeros(len(r), int), np.ones(len(pr), int)])
+    if exclude_square is not None:
+        ok = _square(rows, cols) != exclude_square
+        rows, cols, y, src = rows[ok], cols[ok], y[ok], src[ok]
+    return rows, cols, y, src
+
+
+def north_transfer(period: str, seed: int = 0, n_test: int = 60_000) -> dict:
+    """Train without the northern square, test on its OSM labels (never seen, never cleaned).
+
+    This is the transfer test the eucalyptus map has to pass: the pseudo-labels come from a rule
+    applied elsewhere, and the OSM eucalyptus labels are almost all in this square.
+    """
+    L = all_layers()
+    cube = build_period(period)
+    lab = training_labels(L, period)
+    r, c, y, _ = build_training(period, 25_000, seed, exclude_square=NORTH_SQUARE)
+    model = make_classifier(seed).fit(_pixels_features(cube, r, c), y)
+    tr_, tc_ = np.nonzero(lab < 255)
+    in_n = _square(tr_, tc_) == NORTH_SQUARE
+    tr_, tc_ = tr_[in_n], tc_[in_n]
+    idx = np.random.default_rng(seed).choice(len(tr_), min(n_test, len(tr_)), replace=False)
+    tr_, tc_ = tr_[idx], tc_[idx]
+    ty = lab[tr_, tc_].astype(int)
+    p = model.predict(_pixels_features(cube, tr_, tc_))
+    from sklearn.metrics import precision_score, recall_score
+
+    return {
+        "euc_f1": float(f1_score(ty == 0, p == 0)),
+        "euc_precision": float(precision_score(ty == 0, p == 0, zero_division=0)),
+        "euc_recall": float(recall_score(ty == 0, p == 0, zero_division=0)),
+        "accuracy": float(accuracy_score(ty, p)),
+        "f1": f1_score(ty, p, labels=np.arange(6), average=None, zero_division=0).tolist(),
+        "n_test": len(ty),
+    }
+
+
+def train_period(period: str, per_class: int = 30_000, seed: int = 0, n_folds: int = 5):
+    cube = build_period(period)
+    rows, cols, y, src = build_training(period, per_class, seed)
     X = _pixels_features(cube, rows, cols)
     blocks = block_ids(GRID_40M, 20)[rows, cols]
     cv_pred = np.empty_like(y)
     for tr, te in SpatialBlockKFold(n_folds, seed).split(groups=blocks):
         cv_pred[te] = make_classifier(seed).fit(X[tr], y[tr]).predict(X[te])
-    # Stricter transfer check: hold out whole 100 km squares (how well the map carries to
-    # regions whose labels it never saw).
-    sq = block_ids(GRID_40M, 100)[rows, cols]
-    reg_pred = np.empty_like(y)
-    for tr, te in SpatialBlockKFold(min(5, len(np.unique(sq))), seed).split(groups=sq):
-        reg_pred[te] = make_classifier(seed).fit(X[tr], y[tr]).predict(X[te])
     model = make_classifier(seed).fit(X, y)
     labels = np.arange(6)
+    osm = src == 0
     metrics = {
         "n_train": len(y),
+        "n_pseudo_eucalyptus": int((src == 1).sum()),
         "per_class_train": np.bincount(y, minlength=6).tolist(),
         "spatial_cv_accuracy": float(accuracy_score(y, cv_pred)),
         "kappa": float(cohen_kappa_score(y, cv_pred)),
         "f1": f1_score(y, cv_pred, labels=labels, average=None, zero_division=0).tolist(),
-        "confusion": confusion_matrix(y, cv_pred, labels=labels).tolist(),
-        "region_cv_accuracy": float(accuracy_score(y, reg_pred)),
-        "region_cv_f1": f1_score(
-            y, reg_pred, labels=labels, average=None, zero_division=0
+        "f1_osm_only": f1_score(
+            y[osm], cv_pred[osm], labels=labels, average=None, zero_division=0
         ).tolist(),
+        "confusion": confusion_matrix(y, cv_pred, labels=labels).tolist(),
+        "north_transfer": north_transfer(period, seed),
     }
+    nt = metrics["north_transfer"]
     log.info(
-        "species %s: spatial-CV accuracy %.3f, F1 %s; 100 km-square CV F1 %s",
+        "species %s: spatial-CV accuracy %.3f, F1 %s; north transfer eucalyptus F1 %.2f "
+        "(P %.2f, R %.2f)",
         period,
         metrics["spatial_cv_accuracy"],
         np.round(metrics["f1"], 2),
-        np.round(metrics["region_cv_f1"], 2),
+        nt["euc_f1"],
+        nt["euc_precision"],
+        nt["euc_recall"],
     )
     return model, metrics, (y, cv_pred)
 
