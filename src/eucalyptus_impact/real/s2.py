@@ -80,30 +80,21 @@ def scene_date(scene: Scene) -> str:
     return scene.prefix.rstrip("/").rsplit("/", 1)[-1].split("_")[2]
 
 
-def select_month_scenes(year: int, month: int, n_dates: int = 4, fallback: int = 2):
-    """Scenes per tile for one month, using the same acquisition dates across tiles.
+def select_month_dates(year: int, month: int, n_dates: int = 5, min_clear_tiles: float = 0.3):
+    """Acquisition dates for one month and, per date, the scenes of every tile acquired then.
 
-    Picking each tile's own least-cloudy scenes composites neighbouring tiles from different
-    dates, which leaves visible tile seams that the classifier learns. Instead, dates are ranked
-    by mean cloud cover over the tiles they cover (dates covering fewer than half the tiles are
-    skipped), the best `n_dates` are used everywhere, and a tile with no scene on those dates
-    falls back to its own `fallback` least-cloudy scenes.
+    Dates are ranked by expected clear area, the sum over the tiles they cover of
+    (1 - cloud cover), so a clear date over most of Galicia beats a clear sliver of one tile.
+    Every pixel is then composited from the same pool of dates, with no per-tile choice
+    (per-tile choices left tile seams and swath edges in the first maps).
     """
-    per_tile = {t: list_scenes(t, year, month, max_scenes=None) for t in TILES}
-    by_date: dict[str, list[float]] = {}
-    for scenes in per_tile.values():
-        for sc in scenes:
-            by_date.setdefault(scene_date(sc), []).append(sc.cloud)
-    ranked = sorted(
-        (d for d, c in by_date.items() if len(c) >= len(TILES) / 2),
-        key=lambda d: np.mean(by_date[d]),
-    )
-    chosen = set(ranked[:n_dates])
-    out = {}
-    for t, scenes in per_tile.items():
-        picked = [sc for sc in scenes if scene_date(sc) in chosen]
-        out[t] = picked if picked else scenes[:fallback]
-    return out, sorted(chosen)
+    by_date: dict[str, list[Scene]] = {}
+    for t in TILES:
+        for sc in list_scenes(t, year, month, max_scenes=None, max_cloud=100):
+            by_date.setdefault(scene_date(sc), []).append(sc)
+    clear = {d: sum(1 - sc.cloud / 100 for sc in v) for d, v in by_date.items()}
+    ranked = [d for d in sorted(clear, key=clear.get, reverse=True) if clear[d] >= min_clear_tiles]
+    return {d: by_date[d] for d in sorted(ranked[:n_dates])}
 
 
 ASSET_FILE = {
@@ -161,28 +152,6 @@ def scene_indices(scene: Scene):
     return out.astype("float16"), tr, crs
 
 
-def tile_month(scenes: list[Scene]):
-    if not scenes:
-        return None
-    stack, tr, crs = [], None, None
-    for sc in scenes:
-        try:
-            idx, tr, crs = scene_indices(sc)
-            stack.append(idx)
-        except Exception as e:
-            log.info("scene failed %s: %s", sc.prefix, e)
-    if not stack:
-        return None
-    import warnings
-
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore", RuntimeWarning)
-        med = np.nanmedian(np.stack(stack).astype("float32"), axis=0)
-    n_used = len(stack)
-    del stack
-    return med, tr, crs, n_used
-
-
 def build_period(period: str, threads: int = 4) -> np.memmap:
     """Build (or reuse) the monthly composite cube for one period."""
     from rasterio.warp import Resampling, reproject
@@ -196,45 +165,73 @@ def build_period(period: str, threads: int = 4) -> np.memmap:
     if done.exists():
         return np.memmap(path, dtype="float16", mode="r", shape=shape)
     cube = np.memmap(path, dtype="float16", mode="w+", shape=shape)
+
+    def to_grid(res):
+        idx, tr, crs = res
+        out = np.full((3, ny, nx), np.nan, "float32")
+        for b in range(3):
+            reproject(
+                idx[b].astype("float32"),
+                out[b],
+                src_transform=tr,
+                src_crs=crs,
+                dst_transform=transform_of(GRID_40M),
+                dst_crs=GRID_40M.crs,
+                resampling=Resampling.nearest,
+                src_nodata=np.nan,
+                dst_nodata=np.nan,
+            )
+        return out
+
+    def safe_indices(sc):
+        try:
+            return scene_indices(sc)
+        except Exception as e:  # missing band files happen occasionally in the archive
+            log.info("scene failed %s: %s", sc.prefix, e)
+            return None
+
     for mi, (year, month) in enumerate(PERIODS[period]):
         t0 = time.time()
-        acc = np.zeros((3, ny, nx), "float32")
-        cnt = np.zeros((3, ny, nx), "uint8")
-        with ThreadPoolExecutor(threads) as ex:
-            month_scenes, dates = select_month_scenes(year, month)
-            results = list(ex.map(tile_month, [month_scenes[t] for t in TILES]))
+        dates = select_month_dates(year, month)
+        mosaics = []
         n_sc = 0
-        for res in results:
-            if res is None:
-                continue
-            med, tr, crs, k = res
-            n_sc += k
-            for b in range(3):
-                dst = np.full((ny, nx), np.nan, "float32")
-                reproject(
-                    med[b],
-                    dst,
-                    src_transform=tr,
-                    src_crs=crs,
-                    dst_transform=transform_of(GRID_40M),
-                    dst_crs=GRID_40M.crs,
-                    resampling=Resampling.nearest,
-                    src_nodata=np.nan,
-                    dst_nodata=np.nan,
-                )
-                ok = np.isfinite(dst)
-                acc[b][ok] += dst[ok]
-                cnt[b][ok] += 1
-        with np.errstate(invalid="ignore", divide="ignore"):
-            cube[mi] = (acc / cnt).astype("float16")
+        for scenes in dates.values():
+            # One mosaic per acquisition date: overlapping tiles are the same acquisition, so
+            # averaging them introduces no seam.
+            acc = np.zeros((3, ny, nx), "float32")
+            cnt = np.zeros((3, ny, nx), "uint8")
+            with ThreadPoolExecutor(threads) as ex:
+                for res in ex.map(safe_indices, scenes):
+                    if res is None:
+                        continue
+                    n_sc += 1
+                    g = to_grid(res)
+                    ok = np.isfinite(g)
+                    acc[ok] += g[ok]
+                    cnt[ok] += 1
+            with np.errstate(invalid="ignore", divide="ignore"):
+                mosaics.append((acc / cnt).astype("float16"))
+            del acc, cnt
+        if mosaics:
+            import warnings
+
+            for r0 in range(0, ny, 500):
+                r1 = min(ny, r0 + 500)
+                block = np.stack([m[:, r0:r1] for m in mosaics]).astype("float32")
+                with warnings.catch_warnings():
+                    warnings.simplefilter("ignore", RuntimeWarning)
+                    cube[mi, :, r0:r1] = np.nanmedian(block, axis=0).astype("float16")
+        else:
+            cube[mi] = np.nan
         cube.flush()
         valid = np.isfinite(cube[mi, 0]).mean()
         log.info(
-            "S2 %s %d-%02d: %d scenes (dates %s), %.0f%% valid, %.0fs",
+            "S2 %s %d-%02d: %d scenes on %d dates (%s), %.0f%% valid, %.0fs",
             period,
             year,
             month,
             n_sc,
+            len(dates),
             ",".join(dates),
             100 * valid,
             time.time() - t0,
