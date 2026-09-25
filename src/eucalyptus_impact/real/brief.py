@@ -289,9 +289,9 @@ Clase do mapa de 2024 segundo o tipo de parcela (fracción de parcelas):
 
 Que se conclúe:
 
-- **No agregado o mapa acerta.** O {num(i24["map_euc_share_at_forest_plots"] * 100, 3)} % das
+- **No agregado o mapa achégase.** O {num(i24["map_euc_share_at_forest_plots"] * 100, 3)} % das
   parcelas arboradas está no mapa como eucalipto, e o {num(i24["plot_euc_share"] * 100, 3)} %
-  das parcelas arboradas ten eucalipto.
+  das parcelas arboradas ten eucalipto no inventario de 1998.
 - **Parcela a parcela o acordo é baixo**: F1 {num(i24["todo"]["f1"], 2)} en toda Galicia e
   {num(i24["fora_do_norte"]["f1"], 2)} fóra do norte, lonxe do
   {num(transfer_f1, 2)} da proba de transferencia con OpenStreetMap. Esa proba era optimista.

@@ -138,7 +138,7 @@ What the real-data run established, and what it did not:
   archive on AWS holds the Ministry's **IFN3** plots (MAGRAMA, collection IFN3; Galicia surveyed
   around 1997-1998): a systematic 1 km grid with the species present in each plot, but no
   counts or dates (about 6,900 plots in Galicia). The eucalyptus area is right in aggregate
-  (31-34% of forested plots mapped as eucalyptus vs 27.5% listing it in 1998), but plot-level
+  (31% of forested plots mapped as eucalyptus in 2024 vs 27.5% listing it in 1998), but plot-level
   agreement is low: F1 0.45 overall, 0.44 outside the north, well below the OSM transfer test.
   A date-matched Landsat 2000 map agrees no better (F1 0.42), so most of the gap is the
   reference (any eucalyptus in a 25 m plot) plus map error, not change since 1998. Adding the

@@ -23,7 +23,7 @@
 
 ## Resumo
 
-- **Superficie de eucalipto (mapa).** 440 mil ha en 2024 e 489 mil ha en 2017 (reconto de píxeles; 447 mil ha en 2024 sumando probabilidades). **Estas cifras non están validadas** co inventario oficial descargado do Ministerio (IFN, Mapa Forestal de España): compárense con el antes de citalas (sección 2). Contra 6 903 parcelas do IFN3 (arredor de 1998, publicadas en GBIF), o mapa dá eucalipto no 28,1 % das parcelas arboradas e as parcelas teñen eucalipto no 27,5 %: o total cadra. Parcela a parcela o acordo é baixo (F1 0,44 fóra do norte), en parte porque as parcelas son anteriores a moitas plantacións.
+- **Superficie de eucalipto (mapa).** 440 mil ha en 2024 e 489 mil ha en 2017 (reconto de píxeles; 447 mil ha en 2024 sumando probabilidades). **Estas cifras non están validadas** co inventario oficial descargado do Ministerio (IFN, Mapa Forestal de España): compárense con el antes de citalas (sección 2). Contra 6 903 parcelas do IFN3 (arredor de 1998, publicadas en GBIF), o mapa dá eucalipto no 30,9 % das parcelas arboradas e as parcelas teñen eucalipto no 27,5 %: o total cadra. Parcela a parcela o acordo é baixo (F1 0,44 fóra do norte), en parte porque as parcelas son anteriores a moitas plantacións.
 - **Substitución de bosque autóctono.** Entre 2017 e 2024, 563,2 ha pasaron de frondosas autóctonas a eucalipto en píxeles clasificados con fiabilidade nos dous anos; 484 ha diso coinciden ademais cunha perda de cuberta arbórea (Hansen) ou cun incendio (EFFIS). Esta última é a cifra máis prudente; a diferenza entre mapas tende a sobreestimar o cambio.
 - **Incendios, 2018–2023.** Mantendo constantes o relevo, a localización, a presión humana, a meteoroloxía e as demais cubertas, un aumento de 10 puntos na fracción de eucalipto cambia a probabilidade anual de queima en -0,27 puntos porcentuais (IC 95 %: -0,46 a -0,076). O mato non mostra un efecto distinguible de cero. O valor de robustez é 0,018: un factor de confusión non medido con ese R² parcial co tratamento e co resultado anularía a estimación. No cadro do norte, onde están as etiquetas de OpenStreetMap, o efecto é -0,34 puntos porcentuais por cada 10 puntos de eucalipto (IC 95 %: -0,54 a -0,14; 24 anos-cela queimados). As versións do mapa coinciden no signo (2017 retrodatado: -0,27, 2017 independente: -0,15, 2024 (posterior aos lumes): -0,42), pero non todas son distinguibles de cero: o resultado é sensible ao mapa.
 - **Eucalipto fronte a frondosas autóctonas.** O efecto anterior compárase coa agricultura e outros usos, que son os que máis arden. Fronte ás frondosas autóctonas, que son as que menos arden, 10 puntos de eucalipto no canto de frondosas cambian a probabilidade anual de queima en 0,39 puntos porcentuais (IC 95 % aproximado: -0,018 a 0,79; aproximado porque combina dúas estimacións separadas). Este é o contraste que importa para a restauración.
@@ -160,9 +160,9 @@ Clase do mapa de 2024 segundo o tipo de parcela (fracción de parcelas):
 
 Que se conclúe:
 
-- **No agregado o mapa acerta.** O 28,1 % das
+- **No agregado o mapa achégase.** O 30,9 % das
   parcelas arboradas está no mapa como eucalipto, e o 27,5 %
-  das parcelas arboradas ten eucalipto.
+  das parcelas arboradas ten eucalipto no inventario de 1998.
 - **Parcela a parcela o acordo é baixo**: F1 0,45 en toda Galicia e
   0,44 fóra do norte, lonxe do
   0,72 da proba de transferencia con OpenStreetMap. Esa proba era optimista.
