@@ -316,3 +316,33 @@ def fetch_index() -> None:
         f"awk -F, 'NR==1 || {rows}' > {out}.part && mv {out}.part {out}"
     )
     subprocess.run(["bash", "-c", cmd], check=True)
+
+
+def backcast_validation(min_f1: float = 0.7, min_loss_ratio: float = 2.0) -> dict:
+    """Is the back-cast good enough to date cover change?
+
+    Two checks: the eucalyptus F1 of each epoch's classifier in spatial cross-validation, and
+    whether pixels that turn eucalyptus between 2000 and 2010 had a Hansen loss in 2001-2010
+    (planting follows a clear-cut) clearly more often than pixels whose class did not change.
+    Without the second, map-to-map "change" is classification noise.
+    """
+    m = landsat_maps()
+    aoi = np.load(INTERIM / "aoi.npz")["mask40"] > 0
+    ly = np.load(INTERIM / "hansen.npz")["lossyear40"]
+    a, b = m["class40_2000"], m["class40_2010"]
+    loss = (ly >= 1) & (ly <= 10)
+    gain = aoi & (a < 6) & (a != 0) & (b == 0)
+    same = aoi & (a < 6) & (a != 0) & (b == a)
+    r_gain, r_same = float(loss[gain].mean()), float(loss[same].mean())
+    f1 = {e: float(m[f"cv_f1_{e}"][0]) for e in EPOCHS}
+    area = {e: float((m[f"class40_{e}"][aoi] == 0).sum() * 0.16) for e in EPOCHS}
+    ratio = r_gain / max(r_same, 1e-9)
+    return {
+        "euc_f1": f1,
+        "cv_accuracy": {e: float(m[f"cv_accuracy_{e}"]) for e in EPOCHS},
+        "euc_area_ha": area,
+        "gain_with_loss": r_gain,
+        "same_with_loss": r_same,
+        "loss_ratio": ratio,
+        "passed": bool(min(f1.values()) >= min_f1 and ratio >= min_loss_ratio),
+    }

@@ -68,6 +68,11 @@ GL.update(
         "2017": "2017",
         "2024": "2024",
         "subset": "subconxunto",
+        "epoch": "época",
+        "cv_accuracy": "exactitude (validación cruzada)",
+        "euc_f1": "F1 eucalipto (validación cruzada)",
+        "euc_area_kha": "eucalipto (mil ha)",
+        "ifn3_f1": "F1 fronte ao IFN3",
         "n_plots": "parcelas",
         "false_euc_plots": "parcelas sen eucalipto que o mapa chama eucalipto",
         "n_euc_plots": "parcelas con eucalipto",
@@ -185,8 +190,66 @@ def _experiment_txt(ex: dict | None) -> str:
     )
 
 
+def _timing_txt(li: dict | None) -> str:
+    if not li:
+        return ""
+    l00, s24 = li["Landsat 2000"]["f1"], li["Sentinel-2 2024"]["f1"]
+    return (
+        f"Pero un mapa da mesma época ca o inventario (Landsat 2000, sección seguinte) non "
+        f"concorda mellor coas parcelas (F1 {num(l00, 2)}, fronte a {num(s24, 2)} do mapa de "
+        "2024): a maior parte do desacordo vén da propia referencia (calquera eucalipto nun "
+        "círculo de 25 m) e do erro do mapa, non do cambio desde 1998."
+        if l00 <= s24 + 0.02
+        else f"Un mapa da mesma época (Landsat 2000) concorda mellor (F1 {num(l00, 2)})."
+    )
+
+
+def _landsat_section(bc: dict | None, li: dict | None) -> str:
+    if not bc:
+        return ""
+    ep = list(bc["euc_f1"])
+    tab = pd.DataFrame(
+        {
+            "epoch": ep,
+            "cv_accuracy": [bc["cv_accuracy"][e] for e in ep],
+            "euc_f1": [bc["euc_f1"][e] for e in ep],
+            "euc_area_kha": [bc["euc_area_ha"][e] / 1e3 for e in ep],
+            "ifn3_f1": [li[f"Landsat {e}"]["f1"] if li else np.nan for e in ep],
+        }
+    )
+    verdict = (
+        "**O mapa histórico supera a validación** e úsase na sección 6."
+        if bc["passed"]
+        else "**O mapa histórico non supera a validación, e non se usa.** Coas imaxes "
+        "Landsat de nivel 1 (reflectancia no alto da atmosfera, sen corrección atmosférica) e "
+        "poucas escenas por estación, o clasificador non separa o eucalipto o bastante: a "
+        "superficie non mostra tendencia e o «cambio» entre épocas é ruído. Para facelo ben "
+        "cómpren as imaxes Landsat de reflectancia de superficie (Colección 2), que non eran "
+        "accesibles desde este contorno."
+    )
+    return f"""### Mapa histórico con Landsat, 1990–2017
+
+Para ter un historial de cuberta máis longo (sección 6) clasificáronse compostos estacionais
+Landsat 4–8 (arquivo público de Google Cloud; inverno e verán, NDVI, NDMI e NBR) en catro
+épocas de tres anos. Cada época ten o seu clasificador, adestrado en píxeles sen cambios
+desde 2001 (mesma clase nos dous mapas de Sentinel-2, sen perda de Hansen nin lume).
+
+{_md_table(tab, 3)}
+
+Comprobación de cambio: dos píxeles que pasan a eucalipto entre 2000 e 2010, o
+{num(bc["gain_with_loss"] * 100, 2)} % tivo unha corta rexistrada por Hansen en 2001–2010,
+fronte ao {num(bc["same_with_loss"] * 100, 2)} % dos píxeles sen cambio. Unha plantación
+nova vén case sempre dunha corta, así que a proporción debería ser moito maior.
+
+{verdict}"""
+
+
 def _reference_section(
-    ref: dict | None, inv: dict | None = None, transfer_f1: float = float("nan")
+    ref: dict | None,
+    inv: dict | None = None,
+    transfer_f1: float = float("nan"),
+    landsat_inv: dict | None = None,
+    backcast: dict | None = None,
 ) -> str:
     parts = []
     if inv:
@@ -232,15 +295,18 @@ Que se conclúe:
 - **Parcela a parcela o acordo é baixo**: F1 {num(i24["todo"]["f1"], 2)} en toda Galicia e
   {num(i24["fora_do_norte"]["f1"], 2)} fóra do norte, lonxe do
   {num(transfer_f1, 2)} da proba de transferencia con OpenStreetMap. Esa proba era optimista.
-- **Parte do desacordo é tempo, non erro.** Das parcelas sen eucalipto que o mapa chama
-  eucalipto, o {num(i24["disturbed_share_false_euc"] * 100, 3)} % tivo corta ou lume desde
-  2001 (o primeiro ano de Hansen), fronte ao {num(i24["disturbed_share_other"] * 100, 3)} % do resto: son
-  probablemente plantacións posteriores ao inventario.
+- **O tempo explica só unha parte.** Das parcelas sen eucalipto que o mapa chama eucalipto, o
+  {num(i24["disturbed_share_false_euc"] * 100, 3)} % tivo corta ou lume desde 2001 (o primeiro
+  ano de Hansen), fronte ao {num(i24["disturbed_share_other"] * 100, 3)} % do resto: algunhas
+  son plantacións posteriores ao inventario. {_timing_txt(landsat_inv)}
 {_experiment_txt(inv.get("experiment"))}
 
 Consecuencia: as cifras de superficie son plausibles, pero a localización do eucalipto píxel a
 píxel é incerta. Os efectos estimados sobre os incendios están atenuados por este erro
 (sección 7).""")
+    lsec = _landsat_section(backcast, landsat_inv)
+    if lsec:
+        parts.append(lsec)
     if ref:
         r24 = ref["2024"]
         genus = pd.DataFrame(r24["by_genus"]).sort_values("n", ascending=False)
@@ -341,10 +407,20 @@ O erro de mapa pesa tanto coma o ruído: coa mesma conca e o mesmo caudal, cambi
 do mapa multiplica a estimación por {num(ratio, 2)} (e a cobertura do IC cae). Por iso calquera
 estimación con aforos debería repetirse coas dúas versións do mapa, como se fai cos incendios.
 
-{_water_conclusion(detectable)}"""
+{_water_conclusion(detectable, w.get("backcast"))}"""
 
 
-def _water_conclusion(detectable: bool) -> str:
+def _water_conclusion(detectable: bool, backcast: dict | None = None) -> str:
+    tail = ""
+    if backcast and not backcast["passed"]:
+        tail = (
+            " Intentouse ese historial con Landsat (sección 2), pero o mapa histórico non "
+            "superou a validación."
+        )
+    return _water_conclusion_base(detectable) + tail
+
+
+def _water_conclusion_base(detectable: bool) -> str:
     if detectable:
         return (
             "Conclusión: cos mapas dispoñibles, os aforos permitirían detectar un efecto "
@@ -843,7 +919,7 @@ erro do mapa.
 
 {_md_table(areas["2017"][area_cols], 5, values=("name",))}
 
-{_reference_section(res.get("reference"), res.get("inventory"), sm["2024"]["north_transfer"]["euc_f1"])}
+{_reference_section(res.get("reference"), res.get("inventory"), sm["2024"]["north_transfer"]["euc_f1"], res.get("landsat_inventory"), (res.get("water") or {}).get("backcast"))}
 
 ## 3. Perda de bosque autóctono
 

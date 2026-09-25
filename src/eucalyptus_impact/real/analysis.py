@@ -36,7 +36,12 @@ from ..geo.raster_ops import distance_to, focal_mean
 from ..validation.spatial_cv import SpatialBlockKFold
 from .common import GRID_1KM, INTERIM, log
 from .layers import EUC, NATIVE, PINE, all_layers
-from .reference import inventory_check, inventory_training_experiment, reference_check
+from .reference import (
+    inventory_check,
+    inventory_training_experiment,
+    landsat_inventory_check,
+    reference_check,
+)
 from .species import CLASS_NAMES, PIXEL_HA, area_table, species_maps, transition_table
 from .water import water_analysis
 
@@ -457,6 +462,8 @@ def run_real(seed: int = 0) -> dict:
     log.info("projections done")
     res["reference"] = _cached_json("reference", reference_check)
     res["inventory"] = _cached_json("inventory_check", inventory_check)
+    if (INTERIM / "landsat_maps_v2.npz").exists():
+        res["landsat_inventory"] = _cached_json("landsat_inventory", landsat_inventory_check)
     res["inventory"]["experiment"] = _cached_json(
         "inventory_training", lambda: inventory_training_experiment(seed=seed)
     )
