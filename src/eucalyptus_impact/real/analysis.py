@@ -12,9 +12,10 @@ Design:
 - Conversion: 2017 -> 2024 map transitions (40 m), and the effect of 2018-2021 fire on
   eucalyptus gain by 2024.
 
-Water is not analysed on real data: no streamflow record is reachable from this environment (the
-Augas de Galicia / CEDEX gauges are behind blocked portals). The catchment code in
-models/hydrology.py runs unchanged once gauge data is supplied.
+Water (real/water.py): no streamflow record is reachable from this environment, so runoff is
+estimated only when gauge files are supplied; a power study on the real DEM catchments says what
+such data could detect. Map check (real/reference.py): GBIF tree records as an independent
+reference.
 """
 
 from __future__ import annotations
@@ -35,7 +36,9 @@ from ..geo.raster_ops import distance_to, focal_mean
 from ..validation.spatial_cv import SpatialBlockKFold
 from .common import GRID_1KM, INTERIM, log
 from .layers import EUC, NATIVE, PINE, all_layers
+from .reference import reference_check
 from .species import CLASS_NAMES, PIXEL_HA, area_table, species_maps, transition_table
+from .water import water_analysis
 
 FIRE_YEARS = list(range(2018, 2024))
 STATIC = [
@@ -423,6 +426,16 @@ def map_sensitivity(cells: pd.DataFrame, seed: int = 0) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
+def _cached_json(name: str, fn):
+    """Run `fn` once and keep its JSON-able result in data/interim/{name}.json."""
+    path = INTERIM / f"{name}.json"
+    if path.exists():
+        return json.loads(path.read_text())
+    out = json.loads(json.dumps(fn(), default=float))
+    path.write_text(json.dumps(out, indent=1))
+    return out
+
+
 def run_real(seed: int = 0) -> dict:
     L = all_layers()
     maps = species_maps()
@@ -442,6 +455,9 @@ def run_real(seed: int = 0) -> dict:
     log.info("conversion done")
     res["projections"] = projections(cells, res["fire"], res["susceptibility"], seed=seed)
     log.info("projections done")
+    res["reference"] = _cached_json("reference", reference_check)
+    res["water"] = _cached_json("water", lambda: water_analysis(seed=seed))
+    log.info("reference and water done")
     res["panel_summary"] = {
         "cells": len(cells),
         "cell_years": len(panel),

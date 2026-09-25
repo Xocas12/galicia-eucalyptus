@@ -1,0 +1,297 @@
+"""Independent reference points for the species map, from the GBIF occurrence archive.
+
+The official references (IFN4 plots, Mapa Forestal de España) are not reachable from this
+environment. GBIF's monthly snapshot is (public S3, Parquet), and its Galician tree records
+(iNaturalist, Observation.org, herbaria, forest-inventory datasets republished on GBIF) share
+no source with the OpenStreetMap labels the classifier was trained on.
+
+They are presence-only and opportunistic: observers favour roadsides, parks and edges, and a
+point may be a single tree inside a pixel of something else. So the check reported is
+per-species agreement (share of points of each species the map puts in each class), overall and
+by region, not a design-based accuracy. The official inventory remains the proper check.
+"""
+
+from __future__ import annotations
+
+import os
+from concurrent.futures import ThreadPoolExecutor
+
+import numpy as np
+import pandas as pd
+
+from .common import GRID_40M, INTERIM, LONLAT_BBOX, log
+
+GBIF_BUCKET = "gbif-open-data-eu-central-1"
+GBIF_SNAPSHOT = "2026-09-01"
+COLUMNS = [
+    "gbifid",
+    "datasetkey",
+    "genus",
+    "species",
+    "decimallatitude",
+    "decimallongitude",
+    "coordinateuncertaintyinmeters",
+    "year",
+    "basisofrecord",
+    "establishmentmeans",
+]
+
+# Map classes: EUC, PINE, NATIVE, SHRUB, AGRI, OTHER = range(6) (see layers.osm_forest_labels).
+GENUS_CLASS = {
+    "Eucalyptus": 0,
+    "Pinus": 1,
+    "Quercus": 2,
+    "Castanea": 2,
+    "Betula": 2,
+    "Alnus": 2,
+    "Fraxinus": 2,
+    "Ilex": 2,
+    "Sorbus": 2,
+    "Arbutus": 2,
+    "Fagus": 2,
+    "Ulex": 3,
+    "Cytisus": 3,
+    "Erica": 3,
+    "Calluna": 3,
+    "Genista": 3,
+    "Pterospartum": 3,
+}
+# Native genera that are usually single trees in hedgerows or riparian strips rather than
+# stands; kept for the table but excluded from the stand-level summary.
+NON_STAND = {"Fraxinus", "Ilex", "Sorbus", "Arbutus", "Alnus"}
+
+
+def _s3():
+    import pyarrow.fs as pfs
+
+    proxy = os.environ.get("HTTPS_PROXY") or os.environ.get("https_proxy")
+    kw = {"proxy_options": proxy} if proxy else {}
+    return pfs.S3FileSystem(anonymous=True, region="eu-central-1", **kw)
+
+
+def _scan_file(fs, path: str) -> pd.DataFrame | None:
+    import pyarrow as pa
+    import pyarrow.compute as pc
+    import pyarrow.parquet as pq
+
+    lon0, lat0, lon1, lat1 = LONLAT_BBOX
+    for attempt in range(4):
+        try:
+            pf = pq.ParquetFile(path, filesystem=fs)
+            # Cheap pass first: country codes are tiny, most files hold no Spanish records.
+            cc = pf.read(columns=["countrycode"]).column(0)
+            if not pc.any(pc.equal(cc, "ES")).as_py():
+                return None
+            t = pf.read(columns=[*COLUMNS, "countrycode"])
+            conds = [
+                pc.equal(t["countrycode"], "ES"),
+                pc.is_in(t["genus"], value_set=pa.array(list(GENUS_CLASS))),
+                pc.greater_equal(t["decimallatitude"], lat0),
+                pc.less_equal(t["decimallatitude"], lat1),
+                pc.greater_equal(t["decimallongitude"], lon0),
+                pc.less_equal(t["decimallongitude"], lon1),
+            ]
+            m = conds[0]
+            for c in conds[1:]:
+                m = pc.and_kleene(m, c)
+            m = pc.fill_null(m, False)
+            if not pc.any(m).as_py():
+                return None
+            return t.filter(m).drop(["countrycode"]).to_pandas()
+        except Exception as e:  # transient S3 errors
+            if attempt == 3:
+                log.info("GBIF file failed %s: %s", path, e)
+                return None
+
+
+def gbif_records(threads: int = 16) -> pd.DataFrame:
+    """All GBIF records of the reference genera inside the Galicia bounding box (cached)."""
+    import pyarrow.fs as pfs
+
+    out = INTERIM / "gbif_trees.parquet"
+    if out.exists():
+        return pd.read_parquet(out)
+    fs = _s3()
+    files = fs.get_file_info(
+        pfs.FileSelector(f"{GBIF_BUCKET}/occurrence/{GBIF_SNAPSHOT}/occurrence.parquet/")
+    )
+    paths = [f.path for f in files if f.size > 0]
+    log.info("GBIF: scanning %d files", len(paths))
+    parts = []
+    with ThreadPoolExecutor(threads) as ex:
+        for i, df in enumerate(ex.map(lambda p: _scan_file(fs, p), paths)):
+            if df is not None:
+                parts.append(df)
+            if i % 500 == 0:
+                log.info("GBIF: %d/%d files, %d records", i, len(paths), sum(map(len, parts)))
+    df = pd.concat(parts, ignore_index=True) if parts else pd.DataFrame(columns=COLUMNS)
+    df.to_parquet(out)
+    return df
+
+
+def filter_records(
+    df: pd.DataFrame,
+    max_uncertainty: float = 60.0,
+    years: tuple[int, int] = (2019, 2025),
+) -> pd.DataFrame:
+    """Records usable as map reference: precise, recent, observed (not specimens of cultivated
+    plants), one per species and 40 m pixel."""
+    d = df.copy()
+    unc = pd.to_numeric(d["coordinateuncertaintyinmeters"], errors="coerce")
+    d = d[unc.notna() & (unc <= max_uncertainty)]
+    y = pd.to_numeric(d["year"], errors="coerce")
+    d = d[(y >= years[0]) & (y <= years[1])]
+    d = d[d["basisofrecord"].isin(["HUMAN_OBSERVATION", "OBSERVATION", "MACHINE_OBSERVATION"])]
+    # Coordinates rounded to ~1 m by several apps; exact duplicate positions of different
+    # species are usually a centroid (a park, a village) rather than a tree.
+    key = d["decimallatitude"].round(5).astype(str) + d["decimallongitude"].round(5).astype(str)
+    d = d[key.map(key.value_counts()) <= 3]
+    d["ref_class"] = d["genus"].map(GENUS_CLASS).astype(int)
+    return d
+
+
+def to_pixels(d: pd.DataFrame) -> pd.DataFrame:
+    """Row/col on the 40 m grid (ETRS89 / UTM 29N), one record per genus and pixel."""
+    from pyproj import Transformer
+
+    tr = Transformer.from_crs("EPSG:4326", GRID_40M.crs, always_xy=True)
+    x, y = tr.transform(d["decimallongitude"].to_numpy(), d["decimallatitude"].to_numpy())
+    col = np.floor((x - GRID_40M.xmin) / GRID_40M.resolution_m).astype(int)
+    row = np.floor((GRID_40M.ymax - y) / GRID_40M.resolution_m).astype(int)
+    ny, nx = GRID_40M.shape
+    ok = (row >= 0) & (row < ny) & (col >= 0) & (col < nx)
+    d = d.assign(row=row, col=col)[ok]
+    return d.drop_duplicates(["genus", "row", "col"])
+
+
+def agreement_table(pts: pd.DataFrame, pred: np.ndarray, group: str | None = None) -> pd.DataFrame:
+    """Share of reference points of each class that the map assigns to each class.
+
+    The diagonal is a presence-only recall: of the pixels where observers saw class c, the share
+    the map calls c. The EUC column off the diagonal is how often the map calls eucalyptus
+    where observers saw something else.
+    """
+    p = pred[pts["row"].to_numpy(), pts["col"].to_numpy()]
+    d = pts.assign(pred=p)
+    d = d[d["pred"] < 255]
+    keys = ["ref_class"] + ([group] if group else [])
+    tab = pd.crosstab([d[k] for k in keys], d["pred"], normalize="index")
+    tab = tab.reindex(columns=range(6), fill_value=0.0)
+    tab["n"] = d.groupby(keys).size()
+    return tab
+
+
+def wilson(k: float, n: float, z: float = 1.96) -> tuple[float, float]:
+    if n == 0:
+        return (float("nan"), float("nan"))
+    p = k / n
+    den = 1 + z**2 / n
+    c = (p + z**2 / (2 * n)) / den
+    h = z * np.sqrt(p * (1 - p) / n + z**2 / (4 * n**2)) / den
+    return (c - h, c + h)
+
+
+def eucalyptus_scores(pts: pd.DataFrame, pred: np.ndarray, prior_euc: float) -> dict:
+    """Recall, and precision/F1 re-weighted to a stated eucalyptus share among forest pixels.
+
+    `pred` is the class map, or already the predicted class of each point (1-D).
+
+    Presence-only points do not give prevalence, so precision is computed at an assumed share of
+    eucalyptus among the forest reference classes (from the map itself, which the brief says).
+    """
+    p = pred[pts["row"].to_numpy(), pts["col"].to_numpy()] if pred.ndim == 2 else pred
+    ok = p < 255
+    y = pts["ref_class"].to_numpy()[ok]
+    p = p[ok]
+    forest = np.isin(y, [0, 1, 2])
+    euc = y == 0
+    n_e, n_o = int((euc & forest).sum()), int((~euc & forest).sum())
+    tp = int(((p == 0) & euc).sum())
+    fp_rate = float(((p == 0) & ~euc & forest).sum() / max(n_o, 1))
+    recall = tp / max(n_e, 1)
+    prec = prior_euc * recall / max(prior_euc * recall + (1 - prior_euc) * fp_rate, 1e-9)
+    f1 = 2 * prec * recall / max(prec + recall, 1e-9)
+    lo, hi = wilson(tp, n_e)
+    return {
+        "n_euc": n_e,
+        "n_other_forest": n_o,
+        "recall": recall,
+        "recall_ci": [lo, hi],
+        "false_euc_rate": fp_rate,
+        "precision_at_prior": prec,
+        "f1_at_prior": f1,
+        "prior_euc": prior_euc,
+    }
+
+
+def _square_of(rows, cols) -> np.ndarray:
+    """100 km square code (as species._square) from 40 m row/col."""
+    x = GRID_40M.xmin + (np.asarray(cols) + 0.5) * GRID_40M.resolution_m
+    y = GRID_40M.ymax - (np.asarray(rows) + 0.5) * GRID_40M.resolution_m
+    return (x // 1e5).astype(int) * 100 + (y // 1e5).astype(int)
+
+
+def _tolerant(pts: pd.DataFrame, pred: np.ndarray, radius: int = 1) -> np.ndarray:
+    """Class matched if any pixel within `radius` of the point has the reference class
+    (absorbs GPS error and points on stand edges); otherwise the pixel's own class."""
+    r, c, y = pts["row"].to_numpy(), pts["col"].to_numpy(), pts["ref_class"].to_numpy()
+    ny, nx = pred.shape
+    own = pred[r, c].copy()
+    hit = np.zeros(len(r), bool)
+    for dr in range(-radius, radius + 1):
+        for dc in range(-radius, radius + 1):
+            rr, cc = np.clip(r + dr, 0, ny - 1), np.clip(c + dc, 0, nx - 1)
+            hit |= pred[rr, cc] == y
+    return np.where(hit, y, own)
+
+
+def reference_check(min_points: int = 30) -> dict:
+    """Agreement of the species maps with GBIF points, overall, outside the north and outside
+    the OSM training polygons. 2024 map vs 2019-2025 records; 2017 map vs 2014-2018 records."""
+    from .species import NORTH_SQUARE
+
+    raw = gbif_records()
+    sp = np.load(INTERIM / "species.npz")
+    osm = np.load(INTERIM / "osm_labels_v2.npz")["label40"]
+    aoi = np.load(INTERIM / "aoi.npz")["mask40"]
+    out: dict = {"n_raw": len(raw), "snapshot": GBIF_SNAPSHOT}
+    for period, years, key in (
+        ("2024", (2019, 2025), "class40_2024"),
+        ("2017", (2014, 2018), "class40_2017"),
+        ("2017_independent", (2014, 2018), "class40_2017_independent"),
+    ):
+        pts = to_pixels(filter_records(raw, years=years))
+        pts = pts[aoi[pts["row"], pts["col"]] > 0]
+        pred = sp[key]
+        pts = pts.assign(
+            region=np.where(_square_of(pts["row"], pts["col"]) == NORTH_SQUARE, "norte", "resto"),
+            in_training=osm[pts["row"], pts["col"]] < 255,
+        )
+        f = pred[aoi > 0]
+        forest = np.isin(f, [0, 1, 2])
+        prior = float((f[forest] == 0).mean())
+        res: dict = {"n_points": len(pts), "prior_euc": prior}
+        res["by_genus"] = (
+            pts.assign(pred=pred[pts["row"], pts["col"]])
+            .groupby("genus")
+            .agg(n=("pred", "size"), share_mapped_euc=("pred", lambda s: float((s == 0).mean())))
+            .reset_index()
+            .to_dict(orient="records")
+        )
+        subsets = {
+            "todo": pts,
+            "fora_do_norte": pts[pts["region"] == "resto"],
+            "norte": pts[pts["region"] == "norte"],
+            "fora_das_etiquetas": pts[~pts["in_training"]],
+            "fora_do_norte_e_etiquetas": pts[(pts["region"] == "resto") & ~pts["in_training"]],
+        }
+        for name, d in subsets.items():
+            if (d["ref_class"] == 0).sum() < min_points:
+                res[name] = {"n_euc": int((d["ref_class"] == 0).sum()), "too_few": True}
+                continue
+            s = eucalyptus_scores(d, pred, prior)
+            s["recall_3x3"] = eucalyptus_scores(d, _tolerant(d, pred), prior)["recall"]
+            s["agreement"] = agreement_table(d, pred).reset_index().to_dict(orient="records")
+            res[name] = s
+        out[period] = res
+    return out

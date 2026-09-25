@@ -67,8 +67,182 @@ GL.update(
         "ci_high": "IC 95 % superior",
         "2017": "2017",
         "2024": "2024",
+        "subset": "puntos",
+        "n_euc": "puntos de eucalipto",
+        "n_other_forest": "puntos doutro arboredo",
+        "recall": "sensibilidade",
+        "recall_ci_low": "IC 95 % inferior",
+        "recall_ci_high": "IC 95 % superior",
+        "recall_3x3": "sensibilidade (3×3 píxeles)",
+        "false_euc_rate": "arboredo tomado por eucalipto",
+        "precision_at_prior": "precisión (prevalencia do mapa)",
+        "f1_at_prior": "F1 (prevalencia do mapa)",
+        "genus": "xénero",
+        "n": "puntos",
+        "share_mapped_euc": "fracción no mapa como eucalipto",
+        "estimator": "estimador",
+        "change_scale": "cambio de cuberta (× o real)",
+        "n_catchments": "concas",
+        "true_mm_per_10pts": "efecto real (mm/ano por 10 puntos)",
+        "mean_estimate": "estimación media",
+        "bias": "nesgo",
+        "sd_estimate": "desviación típica",
+        "coverage": "cobertura IC 95 %",
+        "power": "potencia",
+        "mde_mm_per_10pts": "efecto mínimo detectable (mm/ano por 10 puntos)",
+        "TWFE": "efectos fixos dobres",
+        "TWFE + slopes": "efectos fixos dobres + pendente de choiva por conca",
+        "todo": "todos",
+        "fora_do_norte": "fóra do cadro do norte",
+        "norte": "cadro do norte",
+        "fora_das_etiquetas": "fóra dos polígonos de adestramento",
+        "fora_do_norte_e_etiquetas": "fóra do norte e dos polígonos",
     }
 )
+
+REF_SUBSETS = ["todo", "fora_do_norte", "fora_do_norte_e_etiquetas", "norte"]
+
+
+def _reference_table(ref: dict, period: str) -> pd.DataFrame:
+    rows = []
+    for k in REF_SUBSETS:
+        r = ref[period].get(k)
+        if not r or r.get("too_few"):
+            continue
+        rows.append(
+            {
+                "subset": k,
+                "n_euc": r["n_euc"],
+                "n_other_forest": r["n_other_forest"],
+                "recall": r["recall"],
+                "recall_ci_low": r["recall_ci"][0],
+                "recall_ci_high": r["recall_ci"][1],
+                "recall_3x3": r["recall_3x3"],
+                "false_euc_rate": r["false_euc_rate"],
+                "precision_at_prior": r["precision_at_prior"],
+                "f1_at_prior": r["f1_at_prior"],
+            }
+        )
+    return pd.DataFrame(rows)
+
+
+def _reference_section(ref: dict | None) -> str:
+    if not ref:
+        return (
+            "### Comprobación independente\n\nNon dispoñible: non se descargaron os rexistros "
+            "de GBIF."
+        )
+    r24 = ref["2024"]
+    genus = pd.DataFrame(r24["by_genus"]).sort_values("n", ascending=False)
+    genus = genus[genus["n"] >= 20]
+    return f"""### Comprobación independente con rexistros de GBIF
+
+O Mapa Forestal de España e as parcelas do IFN4 non eran accesibles desde este contorno. Como
+referencia independente usáronse as observacións de árbores e matogueiras de Galicia no
+arquivo de GBIF (instantánea {ref["snapshot"]}; iNaturalist, Observation.org, herbarios e outras
+coleccións), que non comparten orixe coas etiquetas de OpenStreetMap. Filtros: observacións
+directas, incerteza de coordenadas de 60 m como máximo, 2019–2025 para o mapa de 2024 e
+2014–2018 para o de 2017, un rexistro por xénero e píxel. Quedan {num(r24["n_points"])}
+puntos para 2024.
+
+Son datos só de presenza e oportunistas: abundan nas beiras de camiños, parques e bordos de
+masa, e un punto pode ser unha árbore illada nun píxel doutra cuberta. Por iso mídese a
+**sensibilidade** (dos puntos onde se viu eucalipto, fracción que o mapa chama eucalipto) e a
+fracción do resto do arboredo que o mapa toma por eucalipto. A precisión e o F1 calcúlanse
+supoñendo que o eucalipto é o {num(r24["prior_euc"] * 100, 3)} % do arboredo, a proporción
+do propio mapa. A columna «3×3 píxeles» acepta o acerto nun píxel veciño (erro do GPS, bordos).
+
+Mapa de 2024:
+
+{_md_table(_reference_table(ref, "2024"), 3, values=("subset",))}
+
+Mapa de 2017 (retrodatado):
+
+{_md_table(_reference_table(ref, "2017"), 3, values=("subset",))}
+
+Mapa de 2017 clasificado de forma independente:
+
+{_md_table(_reference_table(ref, "2017_independent"), 3, values=("subset",))}
+
+Fracción dos puntos de cada xénero que o mapa de 2024 clasifica como eucalipto (xéneros con
+20 puntos ou máis):
+
+{_md_table(genus[["genus", "n", "share_mapped_euc"]], 3)}
+
+Isto non substitúe unha mostra probabilística do inventario oficial, que segue sendo a proba
+axeitada."""
+
+
+def _water_section(w: dict | None) -> str:
+    if not w:
+        return "Non se estimou: faltan os datos de caudal."
+    c = w["catchments"]
+    mde = pd.DataFrame(w["mde"])
+    mde = mde[mde["estimator"] == "TWFE"].drop(columns="estimator")
+    real = mde[(mde["change_scale"] == 1.0)]
+    m79 = float(real["mde_mm_per_10pts"].iloc[-1])
+    err = pd.DataFrame(w["power_map_error"])
+    err = err[err["estimator"] == "TWFE"][
+        ["change_scale", "true_mm_per_10pts", "mean_estimate", "bias", "coverage", "power"]
+    ]
+    pw = pd.DataFrame(w["power"])
+    pw = pw[(pw["estimator"] == "TWFE") & (pw["n_catchments"] == pw["n_catchments"].max())][
+        ["change_scale", "true_mm_per_10pts", "mean_estimate", "bias", "coverage", "power"]
+    ]
+    g = w.get("gauges")
+    if g and "runoff_mm_per_10pts" in g:
+        e, se = g["runoff_mm_per_10pts"]
+        gauge_txt = (
+            f"**Estimación con aforos reais** ({g['n']} estacións, {g['n_years']} anos-estación): "
+            f"un aumento de 10 puntos de eucalipto cambia a escorrentía anual en {num(e, 3)} mm "
+            f"(IC 95 %: {num(e - 1.96 * se, 3)} a {num(e + 1.96 * se, 3)})."
+        )
+    else:
+        gauge_txt = (
+            "**Non hai estimación con datos reais.** Os caudais (anuario de aforos do CEDEX, "
+            "Augas de Galicia, MeteoGalicia, GRDC) non eran accesibles desde este contorno. "
+            "Ao copiar os ficheiros das estacións en `data/raw/gauges/` (formato do CEDEX ou "
+            "CSV xenérico), o mesmo código fai a estimación."
+        )
+    return f"""{gauge_txt}
+
+O que si se fixo é preparar e validar o deseño con datos reais agás os caudais:
+
+- **Concas.** Delimitáronse desde o modelo dixital do terreo Copernicus (200 m) {c["n"]}
+  concas enteiras, sen aniñar, de 30 a 1 500 km² (mediana {num(c["area_km2_median"], 3)} km²),
+  que representan unha rede de aforos. Clima de cada ano hidrolóxico (outubro–setembro):
+  choiva e evapotranspiración potencial (Thornthwaite) das estacións GHCN. Cuberta de cada conca e
+  ano: os mapas de 2017 e 2024, co cambio datado pola perda arbórea de Hansen ou polo incendio.
+- **Problema principal.** O eucalipto medio das concas en 2024 é do
+  {num(c["euc_2024_mean"] * 100, 3)} %, pero dentro de cada conca só cambia
+  {num(c["within_change_mean_pts"], 2)} puntos de media entre 2017 e 2024 (percentil 90:
+  {num(c["within_change_p90_pts"], 2)}). Un panel de concas con efectos fixos só aprende deste
+  cambio interno.
+- **Proba de potencia.** Simuláronse caudais nas concas reais co clima real e un efecto
+  coñecido do eucalipto (curva de Fu con parámetro propio de cada conca, choque anual común e
+  erro do 8 % por conca e ano), e estimouse o efecto co mesmo modelo de efectos fixos dobres,
+  200 veces por caso. O estimador non ten nesgo e o seu IC 95 % cobre o valor real, pero coas
+  {c["n"]} concas o efecto mínimo detectable (potencia do 80 %) é de
+  **{num(m79, 3)} mm/ano por 10 puntos** de eucalipto, moito máis ca un efecto plausible.
+  «Cambio de cuberta × 3» ou «× 6» simula un historial máis longo (por exemplo, mapas desde os
+  anos noventa con Landsat), que é o que faría detectable un efecto de 10–20 mm/ano.
+
+Efecto mínimo detectable:
+
+{_md_table(mde, 3)}
+
+Resultados co número máximo de concas:
+
+{_md_table(pw, 3)}
+
+Con erro de mapa realista (caudais simulados co mapa de 2017 independente, estimación co
+retrodatado):
+
+{_md_table(err, 3)}
+
+Conclusión: **cos mapas dispoñibles (2017 e 2024), nin sequera cos aforos se podería medir o
+efecto do eucalipto sobre o caudal anual**. Fai falta un historial de cuberta máis longo, ou
+ben un deseño de concas pareadas."""
 
 
 def _fig_maps(res: dict, path: Path):
@@ -279,7 +453,7 @@ def _resumo(res: dict) -> str:
         f"e {num(a17['map_area_ha'] / 1e3, 3)} mil ha en 2017 (reconto de píxeles; "
         f"{num(a24['soft_area_ha'] / 1e3, 3)} mil ha en 2024 sumando probabilidades). **Estas "
         "cifras non están validadas** co inventario oficial (IFN, Mapa Forestal de España): "
-        "compárense con el antes de citalas (sección 2)."
+        "compárense con el antes de citalas (sección 2)." + _ref_resumo(res.get("reference"))
     )
     items.append(
         f"- **Substitución de bosque autóctono.** Entre 2017 e 2024, {num(nat['confident'])} ha "
@@ -372,7 +546,33 @@ def _resumo(res: dict) -> str:
             "ao mapa descrita arriba."
         )
     )
+    w = res.get("water")
+    if w:
+        mde = pd.DataFrame(w["mde"])
+        mde = mde[(mde["estimator"] == "TWFE") & (mde["change_scale"] == 1.0)]
+        items.append(
+            "- **Auga.** Sen datos de caudal non hai estimación. Unha proba de potencia nas "
+            f"{w['catchments']['n']} concas reais mostra que, cos mapas de 2017 e 2024, os aforos "
+            "só detectarían un efecto de "
+            f"{num(float(mde['mde_mm_per_10pts'].iloc[-1]), 3)} mm/ano por 10 puntos de "
+            "eucalipto ou maior; fai falta un historial de cuberta máis longo (sección 6)."
+        )
     return "\n".join(items)
+
+
+def _ref_resumo(ref: dict | None) -> str:
+    if not ref:
+        return ""
+    r = ref["2024"].get("fora_do_norte")
+    if not r or r.get("too_few"):
+        return ""
+    lo, hi = r["recall_ci"]
+    return (
+        f" Fóra do norte, dos {num(r['n_euc'])} puntos de eucalipto de GBIF o mapa de 2024 "
+        f"recoñece o {num(r['recall'] * 100, 3)} % (IC 95 %: {num(lo * 100, 3)}–"
+        f"{num(hi * 100, 3)} %) e toma por eucalipto o {num(r['false_euc_rate'] * 100, 3)} % "
+        "dos puntos doutro arboredo."
+    )
 
 
 def write_brief(res: dict, out_dir: str | Path) -> Path:
@@ -467,9 +667,10 @@ def write_brief(res: dict, out_dir: str | Path) -> Path:
 > {num(sm["2024"]["north_transfer"]["euc_precision"], 2)}, sensibilidade
 > {num(sm["2024"]["north_transfer"]["euc_recall"], 2)}) e
 > {num(sm["2017"]["north_transfer"]["euc_f1"], 2)} en 2017. Sen esta corrección era
-> practicamente cero. Segue sen haber unha mostra de referencia independente fóra do norte.
+> practicamente cero. Como comprobación independente en toda Galicia úsanse as observacións
+> de árbores de GBIF (sección 2), que non son unha mostra probabilística.
 > Os efectos causais dependen de supostos que se explican na sección 7. O efecto sobre a auga
-> **non se puido estimar** con datos reais (sección 6).
+> **non se puido estimar** con datos reais; a sección 6 avalía se sería medible con aforos.
 
 ## Resumo
 
@@ -519,6 +720,8 @@ erro do mapa.
 2017:
 
 {_md_table(areas["2017"][area_cols], 5, values=("name",))}
+
+{_reference_section(res.get("reference"))}
 
 ## 3. Perda de bosque autóctono
 
@@ -591,17 +794,15 @@ porque se manteñen as restricións a novas plantacións):
 
 ## 6. Auga
 
-Non se estimou. Os datos de caudal (Augas de Galicia, anuario de aforos do CEDEX) non eran
-accesibles desde este contorno, e ningunha fonte alcanzable medía a escorrentía. O código para
-os paneis de concas e a curva de Budyko está listo e validado con datos sintéticos; só precisa
-os caudais diarios das estacións.
+{_water_section(res.get("water"))}
 
 ## 7. Limitacións
 
 - **Etiquetas.** As etiquetas de especie proceden de OpenStreetMap: {num(int(s24["per_class_train"][0]))}
   píxeles de adestramento de eucalipto en 2024, a clase con menos exemplos. Supúxose que o
   bosque frondoso perennifolio de Galicia é eucalipto; as aciñeiras e sobreiras quedarían mal
-  clasificadas. Hai que validar os mapas co Mapa Forestal de España ou co IFN4.
+  clasificadas. A comprobación con GBIF (sección 2) é independente pero oportunista; a
+  validación definitiva debe facerse co Mapa Forestal de España ou co IFN4.
 - **Erro do mapa.** O erro do mapa atenúa os efectos cara a cero. Non se aplicou SIMEX porque
   non hai unha mostra de referencia independente para medir a varianza do erro.
 - **Incendios.** EFFIS rexistra sobre todo os incendios grandes; os pequenos quedan fóra. Só hai
@@ -620,6 +821,8 @@ os caudais diarios das estacións.
 | EE | erro estándar |
 | EFFIS | Sistema Europeo de Información sobre Incendios Forestais |
 | FWI | índice meteorolóxico de perigo de incendio |
+| GBIF | Global Biodiversity Information Facility (rexistros de biodiversidade) |
+| GHCN | rede mundial de estacións meteorolóxicas da NOAA |
 | IC | intervalo de confianza |
 | MCO | mínimos cadrados ordinarios (estimación inxenua) |
 | VR | valor de robustez |
