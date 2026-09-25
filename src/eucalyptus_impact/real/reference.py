@@ -295,3 +295,123 @@ def reference_check(min_points: int = 30) -> dict:
             res[name] = s
         out[period] = res
     return out
+
+
+# A GBIF dataset with the structure of Spanish National Forest Inventory plots: a systematic
+# 1 km grid over Galicia (x within ~10 m of the ETRS89 / UTM 29N kilometre lines, y at a constant
+# ~85 m offset), a fixed 25 m coordinate uncertainty (the IFN plot radius), species lists per
+# plot including shrubs, and no date. Its title could not be read (the GBIF API is blocked here),
+# so it is described by its structure, not its name. If it is IFN4, Galician fieldwork was around
+# 2009, so eucalyptus planted since then is absent from the plots.
+INVENTORY_KEY = "fab4c599-802a-4bfc-8a59-fc7515001bfa"
+TREE_GENERA = {"Eucalyptus", "Pinus", "Quercus", "Castanea", "Betula", "Alnus", "Fagus"}
+
+
+def inventory_plots(raw: pd.DataFrame) -> pd.DataFrame:
+    """One row per plot with the genera recorded in it, on the 40 m grid."""
+    from pyproj import Transformer
+
+    g = raw[raw["datasetkey"] == INVENTORY_KEY]
+    tr = Transformer.from_crs("EPSG:4326", GRID_40M.crs, always_xy=True)
+    x, y = tr.transform(g["decimallongitude"].to_numpy(), g["decimallatitude"].to_numpy())
+    g = g.assign(px=np.round(x, -3), py=np.round(y, -3), x=x, y=y)
+    plots = g.groupby(["px", "py"]).agg(
+        x=("x", "mean"), y=("y", "mean"), genera=("genus", lambda s: frozenset(s))
+    )
+    plots = plots.reset_index()
+    col = np.floor((plots["x"] - GRID_40M.xmin) / GRID_40M.resolution_m).astype(int)
+    row = np.floor((GRID_40M.ymax - plots["y"]) / GRID_40M.resolution_m).astype(int)
+    ny, nx = GRID_40M.shape
+    ok = (row >= 0) & (row < ny) & (col >= 0) & (col < nx)
+    plots = plots.assign(row=row, col=col)[ok].reset_index(drop=True)
+    has = lambda gen: plots["genera"].map(lambda s: gen in s)  # noqa: E731
+    trees = plots["genera"].map(lambda s: bool(s & TREE_GENERA))
+    plots["plot_type"] = np.select(
+        [has("Eucalyptus"), has("Pinus"), trees],
+        ["eucalipto", "piñeiro sen eucalipto", "frondosas sen eucalipto nin piñeiro"],
+        "só mato",
+    )
+    return plots
+
+
+def _plot_scores(p: pd.DataFrame, pred: np.ndarray) -> dict:
+    m = pred[p["row"], p["col"]]
+    ok = m < 6
+    p, m = p[ok], m[ok]
+    euc = (p["plot_type"] == "eucalipto").to_numpy()
+    tp = int(((m == 0) & euc).sum())
+    n_map = int((m == 0).sum())
+    n_e = int(euc.sum())
+    prec, rec = tp / max(n_map, 1), tp / max(n_e, 1)
+    return {
+        "n_plots": len(p),
+        "n_euc_plots": n_e,
+        "recall": rec,
+        "recall_ci": list(wilson(tp, n_e)),
+        "precision": prec,
+        "precision_ci": list(wilson(tp, n_map)),
+        "f1": 2 * prec * rec / max(prec + rec, 1e-9),
+        "false_euc_rate": float(((m == 0) & ~euc).sum() / max((~euc).sum(), 1)),
+    }
+
+
+def inventory_check() -> dict:
+    """Map agreement with the inventory plots: overall, outside the north, by plot type, and
+    whether map-eucalyptus plots without eucalyptus show later disturbance (Hansen loss or EFFIS
+    fire after 2009), which would point to planting after the inventory rather than map error."""
+    from .species import NORTH_SQUARE
+
+    raw = gbif_records()
+    plots = inventory_plots(raw)
+    sp = np.load(INTERIM / "species.npz")
+    osm = np.load(INTERIM / "osm_labels_v2.npz")["label40"]
+    ly = np.load(INTERIM / "hansen.npz")["lossyear40"].astype(int)
+    ef = np.load(INTERIM / "effis.npz")
+    burnt = np.zeros(ly.shape, bool)
+    for y in range(2018, 2024):
+        burnt |= ef[f"burned40_{y}"]
+    r, c = plots["row"].to_numpy(), plots["col"].to_numpy()
+    # 3 x 3 window: the plot is 25 m in radius and its position is known to ~10 m.
+    dist = np.zeros(len(plots), bool)
+    for dr in (-1, 0, 1):
+        for dc in (-1, 0, 1):
+            rr = np.clip(r + dr, 0, ly.shape[0] - 1)
+            cc = np.clip(c + dc, 0, ly.shape[1] - 1)
+            dist |= (ly[rr, cc] >= 10) | burnt[rr, cc]
+    plots = plots.assign(
+        region=np.where(_square_of(r, c) == NORTH_SQUARE, "norte", "resto"),
+        in_training=osm[r, c] < 255,
+        disturbed_since_2010=dist,
+    )
+    out: dict = {
+        "n_plots": len(plots),
+        "n_records": int((raw["datasetkey"] == INVENTORY_KEY).sum()),
+    }
+    for key, name in (
+        ("class40_2024", "2024"),
+        ("class40_2017", "2017"),
+        ("class40_2017_independent", "2017_independent"),
+    ):
+        pred = sp[key]
+        res = {
+            "todo": _plot_scores(plots, pred),
+            "fora_do_norte": _plot_scores(plots[plots["region"] == "resto"], pred),
+            "norte": _plot_scores(plots[plots["region"] == "norte"], pred),
+            "fora_das_etiquetas": _plot_scores(plots[~plots["in_training"]], pred),
+        }
+        m = pred[r, c]
+        tab = pd.crosstab(plots["plot_type"], np.where(m < 6, m, 6), normalize="index")
+        tab = tab.reindex(columns=range(7), fill_value=0.0)
+        tab["n"] = plots.groupby("plot_type").size()
+        res["by_type"] = tab.reset_index().to_dict(orient="records")
+        fp = (m == 0) & (plots["plot_type"] != "eucalipto").to_numpy()
+        tn = (m < 6) & (m != 0) & (plots["plot_type"] != "eucalipto").to_numpy()
+        res["disturbed_share_false_euc"] = float(plots["disturbed_since_2010"][fp].mean())
+        res["disturbed_share_other"] = float(plots["disturbed_since_2010"][tn].mean())
+        # Share of forest plots (any tree genus) that list eucalyptus, against the map's share
+        # of eucalyptus at the same plots: both describe the same sample.
+        forest = plots["plot_type"] != "só mato"
+        res["plot_euc_share"] = float((plots["plot_type"][forest] == "eucalipto").mean())
+        res["map_euc_share_at_forest_plots"] = float((m[forest.to_numpy()] == 0).mean())
+        out[name] = res
+    return out
