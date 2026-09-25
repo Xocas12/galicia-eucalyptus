@@ -176,7 +176,7 @@ def _experiment_txt(ex: dict | None) -> str:
         "- **Adestrar coas parcelas "
         + ("mellora o mapa" if better else "non mellora o mapa")
         + f".** Nun experimento, as parcelas da metade dos bloques de 10 km "
-        f"({num(ex['n_train_plots'])} sen perturbación desde 2010) engadíronse ao adestramento "
+        f"({num(ex['n_train_plots'])} sen perturbación desde 2001) engadíronse ao adestramento "
         f"e avaliouse nas {num(ex['n_test_plots'])} da outra metade: F1 {num(base, 2)} co mapa "
         f"actual e {num(min(added), 2)}–{num(max(added), 2)} coas parcelas; adestrando só coas "
         f"parcelas, {num(ex['inventory_only']['f1'], 2)}. Unha parcela con algún eucalipto non é "
@@ -197,12 +197,12 @@ def _reference_section(
         parts.append(f"""### Comprobación con parcelas de inventario forestal
 
 O Mapa Forestal de España e o IFN4 non se podían descargar desde este contorno, pero o arquivo
-de GBIF contén un conxunto co deseño das parcelas do Inventario Forestal Nacional: unha malla
-sistemática de 1 km en toda Galicia, parcelas de 25 m de radio e a lista de especies de cada
-unha, sen data (se é o IFN4, o traballo de campo en Galicia foi arredor de 2009). O título do
-conxunto non se puido ler (a API de GBIF está bloqueada), así que se identifica polo deseño.
-Quedan {num(inv["n_plots"])} parcelas. Por ser unha mostra sistemática, dá unha precisión
-de deseño, non só a sensibilidade.
+de GBIF contén as parcelas do **Terceiro Inventario Forestal Nacional (IFN3)**, publicadas polo
+Ministerio (código de institución MAGRAMA, colección IFN3, licenza CC BY-NC 4.0): unha malla
+sistemática de 1 km coa lista de especies de cada parcela, sen número de pés nin data. O
+traballo de campo do IFN3 en Galicia foi arredor de 1997–1998, así que as parcelas son dúas
+décadas anteriores aos mapas de Sentinel-2. Quedan {num(inv["n_plots"])} parcelas. Por ser unha
+mostra sistemática, dá unha precisión de deseño, non só a sensibilidade.
 
 Unha parcela conta como «eucalipto» se a lista inclúe algún eucalipto; non se sabe se domina.
 Precisión: das parcelas que o mapa chama eucalipto, fracción que ten eucalipto. Sensibilidade:
@@ -233,8 +233,8 @@ Que se conclúe:
   {num(i24["fora_do_norte"]["f1"], 2)} fóra do norte, lonxe do
   {num(transfer_f1, 2)} da proba de transferencia con OpenStreetMap. Esa proba era optimista.
 - **Parte do desacordo é tempo, non erro.** Das parcelas sen eucalipto que o mapa chama
-  eucalipto, o {num(i24["disturbed_share_false_euc"] * 100, 3)} % tivo corta ou lume despois
-  de 2010, fronte ao {num(i24["disturbed_share_other"] * 100, 3)} % do resto: son
+  eucalipto, o {num(i24["disturbed_share_false_euc"] * 100, 3)} % tivo corta ou lume desde
+  2001 (o primeiro ano de Hansen), fronte ao {num(i24["disturbed_share_other"] * 100, 3)} % do resto: son
   probablemente plantacións posteriores ao inventario.
 {_experiment_txt(inv.get("experiment"))}
 
@@ -678,7 +678,7 @@ def _ref_resumo(ref: dict | None, inv: dict | None = None) -> str:
         i = inv["2024"]
         f = i["fora_do_norte"]
         return (
-            f" Contra {num(inv['n_plots'])} parcelas dunha malla de inventario forestal (GBIF), o "
+            f" Contra {num(inv['n_plots'])} parcelas do IFN3 (arredor de 1998, publicadas en GBIF), o "
             f"mapa dá eucalipto no {num(i['map_euc_share_at_forest_plots'] * 100, 3)} % das "
             f"parcelas arboradas e as parcelas teñen eucalipto no "
             f"{num(i['plot_euc_share'] * 100, 3)} %: o total cadra. Parcela a parcela o acordo é "
@@ -788,8 +788,8 @@ def write_brief(res: dict, out_dir: str | Path) -> Path:
 > {num(sm["2024"]["north_transfer"]["euc_precision"], 2)}, sensibilidade
 > {num(sm["2024"]["north_transfer"]["euc_recall"], 2)}) e
 > {num(sm["2017"]["north_transfer"]["euc_f1"], 2)} en 2017. Sen esta corrección era
-> practicamente cero. A comprobación independente con parcelas dunha malla de inventario
-> forestal en toda Galicia (sección 2) é máis severa: a superficie total cadra, pero parcela a
+> practicamente cero. A comprobación independente coas parcelas do IFN3 en toda Galicia
+> (sección 2) é máis severa: a superficie total cadra, pero parcela a
 > parcela o acordo é baixo.
 > Os efectos causais dependen de supostos que se explican na sección 7. O efecto sobre a auga
 > **non se puido estimar** con datos reais; a sección 6 avalía se sería medible con aforos.
@@ -946,6 +946,7 @@ porque se manteñen as restricións a novas plantacións):
 | EFFIS | Sistema Europeo de Información sobre Incendios Forestais |
 | FWI | índice meteorolóxico de perigo de incendio |
 | GBIF | Global Biodiversity Information Facility (rexistros de biodiversidade) |
+| IFN3, IFN4 | Terceiro e Cuarto Inventario Forestal Nacional |
 | GHCN | rede mundial de estacións meteorolóxicas da NOAA |
 | IC | intervalo de confianza |
 | MCO | mínimos cadrados ordinarios (estimación inxenua) |

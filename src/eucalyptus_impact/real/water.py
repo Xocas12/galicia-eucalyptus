@@ -30,6 +30,7 @@ HYDRO_RES = 200  # m; 5 x 5 pixels of the 40 m grid
 AGG = HYDRO_RES // 40
 GRID_HYDRO = Grid.from_bbox(BBOX, HYDRO_RES)
 WATER_YEARS = range(2001, 2025)  # water year Y = Oct Y-1 .. Sep Y
+LONG_YEARS = range(1990, 2025)  # with the Landsat back-cast
 GAUGE_DIR = RAW / "gauges"
 
 # Mean day length (hours) by month at 42.5 N, for Thornthwaite PET.
@@ -264,10 +265,10 @@ def snap_gauges(st: pd.DataFrame, acc: np.ndarray, radius_m: float = 1000) -> pd
 
 
 def ghcn_monthly() -> pd.DataFrame:
-    """Monthly precipitation (mm) and mean temperature (C) per GHCN station, 2000-2024."""
+    """Monthly precipitation (mm) and mean temperature (C) per GHCN station, 1985-2024."""
     from .layers import GHCN_STATIONS
 
-    path = INTERIM / "ghcn_monthly.csv"
+    path = INTERIM / "ghcn_monthly_1985.csv"
     if path.exists():
         return pd.read_csv(path)
     rows = []
@@ -276,7 +277,7 @@ def ghcn_monthly() -> pd.DataFrame:
         df = pd.read_csv(io.StringIO(txt), dtype={"ID": str}, low_memory=False)
         df.columns = [c.upper() for c in df.columns]
         df["DATE"] = pd.to_datetime(df["DATE"].astype(str), format="%Y%m%d", errors="coerce")
-        df = df[df["ELEMENT"].isin(["TMAX", "TMIN", "PRCP"]) & (df["DATE"].dt.year >= 1999)]
+        df = df[df["ELEMENT"].isin(["TMAX", "TMIN", "PRCP"]) & (df["DATE"].dt.year >= 1984)]
         df["v"] = df["DATA_VALUE"] / 10.0
         df["ym"] = df["DATE"].dt.to_period("M")
         p = df[df["ELEMENT"] == "PRCP"].groupby("ym")["v"].agg(["sum", "size"])
@@ -598,6 +599,90 @@ def build_panel(info: pd.DataFrame, members, version: str = "backdated") -> pd.D
     return clim.merge(cov, on=["catchment", "year"])
 
 
+def landsat_fractions(members: list[np.ndarray]) -> pd.DataFrame:
+    """Eucalyptus, pine and native share per catchment in each Landsat epoch (classified pixels
+    only)."""
+    from .landsat import EPOCHS, landsat_maps
+
+    lm = landsat_maps()
+    ny, nx = GRID_HYDRO.shape
+    hr = (np.arange(ny * AGG) // AGG)[:, None] * nx + (np.arange(nx * AGG) // AGG)[None, :]
+    lab = np.zeros(ny * nx, np.int32)
+    for i, m in enumerate(members):
+        lab[m] = i + 1
+    plab = lab[hr]
+    k = len(members)
+    rows = []
+    for e in EPOCHS:
+        cls = lm[f"class40_{e}"][: ny * AGG, : nx * AGG]
+        ok = (plab > 0) & (cls < 6)
+        pl, cl = plab[ok] - 1, cls[ok]
+        n = np.maximum(np.bincount(pl, minlength=k), 1).astype(float)
+        rows.append(
+            pd.DataFrame(
+                {
+                    "catchment": np.arange(k),
+                    "epoch": int(e),
+                    "f_eucalyptus": np.bincount(pl[cl == 0], minlength=k) / n,
+                    "f_pine": np.bincount(pl[cl == 1], minlength=k) / n,
+                    "f_native_broadleaf": np.bincount(pl[cl == 2], minlength=k) / n,
+                }
+            )
+        )
+    return pd.concat(rows, ignore_index=True)
+
+
+def cover_paths_long(members: list[np.ndarray], years=LONG_YEARS) -> pd.DataFrame:
+    """Cover per catchment and water year 1990-2024.
+
+    2017-2024 is the Sentinel-2 path (cover_paths). Before 2017 each catchment keeps its
+    Sentinel-2 2017 level and adds the Landsat change relative to the Landsat 2017 epoch,
+    interpolated linearly between epochs (1990, 2000, 2010, 2017). Anchoring on the change, not
+    the level, avoids a step where the source switches from one sensor's map to the other's.
+    """
+    recent = cover_paths(members, "backdated", range(2017, 2025))
+    base = recent[recent["year"] == 2017].set_index("catchment")
+    lf = landsat_fractions(members)
+    cols = ["f_eucalyptus", "f_pine", "f_native_broadleaf"]
+    rows = []
+    for c, g in lf.groupby("catchment"):
+        g = g.sort_values("epoch")
+        ref = g[g["epoch"] == 2017][cols].to_numpy()[0]
+        for yr in years:
+            if yr >= 2017:
+                continue
+            vals = {
+                col: float(
+                    np.clip(base.loc[c, col] + np.interp(yr, g["epoch"], g[col]) - ref[i], 0, 1)
+                )
+                for i, col in enumerate(cols)
+            }
+            rows.append({"catchment": c, "year": yr, **vals})
+    return pd.concat([pd.DataFrame(rows), recent], ignore_index=True).sort_values(
+        ["catchment", "year"]
+    )
+
+
+def long_history_study(info, members, seed: int = 0, reps: int = 200) -> dict:
+    """Power study with the 1990-2024 cover paths from the Landsat back-cast."""
+    clim = catchment_climate(info[["cx", "cy"]].to_numpy(), LONG_YEARS)
+    panel = clim.merge(cover_paths_long(members), on=["catchment", "year"])
+    d = panel.groupby("catchment")["f_eucalyptus"].agg(lambda s: s.max() - s.min())
+    first = panel[panel["year"] == panel["year"].min()]["f_eucalyptus"].mean()
+    last = panel[panel["year"] == 2024]["f_eucalyptus"].mean()
+    ps = power_study(panel, change_scale=(1.0,), reps=reps, seed=seed + 2)
+    return {
+        "years": [int(panel["year"].min()), int(panel["year"].max())],
+        "n_catchment_years": len(panel),
+        "euc_first_mean": float(first),
+        "euc_2024_mean": float(last),
+        "within_change_mean_pts": float(100 * d.mean()),
+        "within_change_p90_pts": float(100 * d.quantile(0.9)),
+        "power": ps.to_dict(orient="records"),
+        "mde": minimum_detectable(ps).to_dict(orient="records"),
+    }
+
+
 def water_analysis(seed: int = 0, reps: int = 200) -> dict:
     """Real gauge estimate when gauges are supplied; power study on real catchments always."""
     from ..models.hydrology import fit_budyko, twfe
@@ -629,6 +714,8 @@ def water_analysis(seed: int = 0, reps: int = 200) -> dict:
     out["power"] = ps.to_dict(orient="records")
     out["mde"] = minimum_detectable(ps).to_dict(orient="records")
     out["power_map_error"] = ps_err.to_dict(orient="records")
+    if (INTERIM / "landsat_maps.npz").exists():
+        out["long"] = long_history_study(info, members, seed=seed, reps=reps)
 
     g = load_gauges()
     if g is None:

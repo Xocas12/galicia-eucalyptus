@@ -297,12 +297,11 @@ def reference_check(min_points: int = 30) -> dict:
     return out
 
 
-# A GBIF dataset with the structure of Spanish National Forest Inventory plots: a systematic
-# 1 km grid over Galicia (x within ~10 m of the ETRS89 / UTM 29N kilometre lines, y at a constant
-# ~85 m offset), a fixed 25 m coordinate uncertainty (the IFN plot radius), species lists per
-# plot including shrubs, and no date. Its title could not be read (the GBIF API is blocked here),
-# so it is described by its structure, not its name. If it is IFN4, Galician fieldwork was around
-# 2009, so eucalyptus planted since then is absent from the plots.
+# The Third Spanish National Forest Inventory (IFN3) plots, published on GBIF by the Ministry
+# (institution code MAGRAMA, collection code IFN3, occurrence ids "MAGRAMA:IFN3:<n>", licence
+# CC BY-NC 4.0): a systematic 1 km grid of plots with the species present in each, no counts
+# and no date. IFN3 fieldwork in Galicia was around 1997-1998, so the plots predate the
+# Sentinel-2 maps by two decades; the Landsat 2000 epoch is the date-matched comparison.
 INVENTORY_KEY = "fab4c599-802a-4bfc-8a59-fc7515001bfa"
 TREE_GENERA = {"Eucalyptus", "Pinus", "Quercus", "Castanea", "Betula", "Alnus", "Fagus"}
 
@@ -357,8 +356,8 @@ def _plot_scores(p: pd.DataFrame, pred: np.ndarray) -> dict:
 
 def inventory_check() -> dict:
     """Map agreement with the inventory plots: overall, outside the north, by plot type, and
-    whether map-eucalyptus plots without eucalyptus show later disturbance (Hansen loss or EFFIS
-    fire after 2009), which would point to planting after the inventory rather than map error."""
+    whether map-eucalyptus plots without eucalyptus show later disturbance (Hansen loss from
+    2001, the first year it covers, or EFFIS fire), which would point to planting after the inventory rather than map error."""
     from .species import NORTH_SQUARE
 
     raw = gbif_records()
@@ -377,11 +376,11 @@ def inventory_check() -> dict:
         for dc in (-1, 0, 1):
             rr = np.clip(r + dr, 0, ly.shape[0] - 1)
             cc = np.clip(c + dc, 0, ly.shape[1] - 1)
-            dist |= (ly[rr, cc] >= 10) | burnt[rr, cc]
+            dist |= (ly[rr, cc] >= 1) | burnt[rr, cc]
     plots = plots.assign(
         region=np.where(_square_of(r, c) == NORTH_SQUARE, "norte", "resto"),
         in_training=osm[r, c] < 255,
-        disturbed_since_2010=dist,
+        disturbed_since_2001=dist,
     )
     out: dict = {
         "n_plots": len(plots),
@@ -406,8 +405,8 @@ def inventory_check() -> dict:
         res["by_type"] = tab.reset_index().to_dict(orient="records")
         fp = (m == 0) & (plots["plot_type"] != "eucalipto").to_numpy()
         tn = (m < 6) & (m != 0) & (plots["plot_type"] != "eucalipto").to_numpy()
-        res["disturbed_share_false_euc"] = float(plots["disturbed_since_2010"][fp].mean())
-        res["disturbed_share_other"] = float(plots["disturbed_since_2010"][tn].mean())
+        res["disturbed_share_false_euc"] = float(plots["disturbed_since_2001"][fp].mean())
+        res["disturbed_share_other"] = float(plots["disturbed_since_2001"][tn].mean())
         # Share of forest plots (any tree genus) that list eucalyptus, against the map's share
         # of eucalyptus at the same plots: both describe the same sample.
         forest = plots["plot_type"] != "só mato"
@@ -428,8 +427,8 @@ PLOT_LABEL = {
 def inventory_training_experiment(seed: int = 0, weights=(5.0, 20.0)) -> dict:
     """Does adding inventory plots to the training labels improve the map?
 
-    Plots are split by 10 km blocks into halves. Plots in the training half that were not
-    disturbed after 2010 (so their label probably still holds) add 3 x 3 pixels each to the
+    Plots are split by 10 km blocks into halves. Plots in the training half with no
+    disturbance since 2001 (so their label probably still holds) add 3 x 3 pixels each to the
     usual training set (cleaned OSM labels + pseudo-labels), with extra weight. Every model is
     scored on the plots of the other half, the current map included.
     """
@@ -450,7 +449,7 @@ def inventory_training_experiment(seed: int = 0, weights=(5.0, 20.0)) -> dict:
     for dr in (-1, 0, 1):
         for dc in (-1, 0, 1):
             rr, cc = np.clip(r + dr, 0, ly.shape[0] - 1), np.clip(c + dc, 0, ly.shape[1] - 1)
-            dist |= (ly[rr, cc] >= 10) | burnt[rr, cc]
+            dist |= (ly[rr, cc] >= 1) | burnt[rr, cc]
     plots["disturbed"] = dist
     plots["y"] = plots["plot_type"].map(PLOT_LABEL)
     blk = block_ids(GRID_40M, 10)[r, c]
@@ -499,4 +498,31 @@ def inventory_training_experiment(seed: int = 0, weights=(5.0, 20.0)) -> dict:
         m.model.fit(XX[:, m.keep_], YY, sample_weight=W)
         out[name] = score(m.predict(Xt), te)
         log.info("inventory experiment %s: %s", name, out[name])
+    return out
+
+
+def landsat_inventory_check() -> dict:
+    """The inventory plots against each Landsat epoch map and the Sentinel-2 maps.
+
+    The plots date from around 1998, so the 2000 Landsat map should agree with them best; a
+    steady fall in agreement after 2000 points to change since the survey rather than map error.
+    """
+    from .landsat import EPOCHS, landsat_maps
+
+    plots = inventory_plots(gbif_records())
+    lm = landsat_maps()
+    sp = np.load(INTERIM / "species.npz")
+    maps = {f"Landsat {e}": lm[f"class40_{e}"] for e in EPOCHS}
+    maps["Sentinel-2 2017"] = sp["class40_2017"]
+    maps["Sentinel-2 2024"] = sp["class40_2024"]
+    out = {}
+    for name, m in maps.items():
+        s = _plot_scores(plots, m)
+        forest = plots["plot_type"] != "só mato"
+        v = m[plots["row"], plots["col"]][forest.to_numpy()]
+        s["map_euc_share_at_forest_plots"] = float((v[v < 6] == 0).mean())
+        out[name] = s
+    out["plot_euc_share"] = float(
+        (plots["plot_type"][plots["plot_type"] != "só mato"] == "eucalipto").mean()
+    )
     return out

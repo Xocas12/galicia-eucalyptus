@@ -33,6 +33,11 @@ def main(argv=None) -> int:
             all_layers()
             for period in ("2024", "2017"):
                 build_period(period)
+            from .real.landsat import EPOCHS, epoch_features, fetch_index
+
+            fetch_index()
+            for epoch in EPOCHS:
+                epoch_features(epoch)
         if args.stage in ("run", "all"):
             from .real.analysis import run_real
             from .real.brief import write_brief
