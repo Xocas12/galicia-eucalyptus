@@ -69,6 +69,7 @@ GL.update(
         "2024": "2024",
         "subset": "subconxunto",
         "n_plots": "parcelas",
+        "false_euc_plots": "parcelas sen eucalipto que o mapa chama eucalipto",
         "n_euc_plots": "parcelas con eucalipto",
         "precision": "precisión",
         "f1": "F1",
@@ -152,14 +153,16 @@ def _inventory_tables(inv: dict, period: str) -> tuple[pd.DataFrame, pd.DataFram
                 "recall": r["recall"],
                 "precision": r["precision"],
                 "f1": r["f1"],
-                "false_euc_rate": r["false_euc_rate"],
+                "false_euc_plots": r["false_euc_rate"],
             }
         )
     bt = pd.DataFrame(inv[period]["by_type"]).set_index("plot_type").reindex(PLOT_TYPES_ORDER)
     names = [*CLASS_NAMES_GL, "sen datos"]
     bt = bt.rename(columns={str(k): v for k, v in enumerate(names)})
     bt = bt.rename(columns=dict(enumerate(names)))
-    bt = bt.reset_index()[["plot_type", "n", *CLASS_NAMES_GL]]
+    bt = bt.reset_index().rename(columns={"n": "n_plots"})[
+        ["plot_type", "n_plots", *CLASS_NAMES_GL]
+    ]
     return pd.DataFrame(rows), bt
 
 
@@ -209,9 +212,11 @@ Mapa de 2024:
 
 {_md_table(t24, 3, values=("subset",))}
 
-Mapa de 2017 retrodatado e mapa de 2017 independente:
+Mapa de 2017 retrodatado:
 
 {_md_table(t17, 3, values=("subset",))}
+
+Mapa de 2017 clasificado de forma independente:
 
 {_md_table(t17i, 3, values=("subset",))}
 
@@ -560,7 +565,7 @@ def _resumo(res: dict) -> str:
         f"{num(a24['soft_area_ha'] / 1e3, 3)} mil ha en 2024 sumando probabilidades). **Estas "
         "cifras non están validadas** co inventario oficial descargado do Ministerio (IFN, Mapa "
         "Forestal de España): compárense con el antes de citalas (sección 2)."
-        + _ref_resumo(res.get("reference"))
+        + _ref_resumo(res.get("reference"), res.get("inventory"))
     )
     items.append(
         f"- **Substitución de bosque autóctono.** Entre 2017 e 2024, {num(nat['confident'])} ha "
