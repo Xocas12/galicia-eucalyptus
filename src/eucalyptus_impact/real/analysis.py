@@ -161,6 +161,20 @@ def fire_analysis(panel: pd.DataFrame, n_folds=5, seed=0) -> dict:
     out["severity_naive"] = ols(
         b["severity"], b["f_eucalyptus"], b["block"], name="eucalyptus -> severity (EFFIS class)"
     )
+    # Restricted estimate: the 100 km square holding 91% of the eucalyptus labels (easting
+    # 500-600 km, northing 4800-4900 km), the only region where the eucalyptus map is validated.
+    reg = panel[(panel["x_km"] >= 500) & (panel["x_km"] < 600) & (panel["y_km"] >= 4800)]
+    Xr = reg[CONF + [c for c in COVER[1:4]]].to_numpy()
+    out["occurrence_dml_labelled_region"] = dml_plr(
+        reg["burned"].to_numpy().astype(float),
+        reg["f_eucalyptus"].to_numpy(),
+        Xr,
+        reg["block"].to_numpy(),
+        n_folds,
+        seed,
+        name="eucalyptus -> P(burn), labelled region",
+    )
+    out["labelled_region_burned_cell_years"] = int(reg["burned"].sum())
     # heterogeneity
     coast = pd.qcut(panel["dist_sea_km"], 3, labels=["1 coast", "2 transition", "3 interior"])
     fwi = pd.qcut(

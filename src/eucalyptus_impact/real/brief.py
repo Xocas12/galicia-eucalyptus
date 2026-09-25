@@ -62,6 +62,8 @@ GL.update(
         "source": "fonte",
         "use": "uso",
         "period": "período",
+        "2017": "2017",
+        "2024": "2024",
     }
 )
 
@@ -189,6 +191,8 @@ def _ci(e) -> str:
     return f"{num(e.estimate, 3)} (IC 95 %: {num(lo, 3)} a {num(hi, 3)})"
 
 
+CLASS_NAMES_GL = ["eucalipto", "piñeiro", "frondosas autóctonas", "mato", "agricultura", "outros"]
+
 SOURCES = pd.DataFrame(
     [
         (
@@ -281,9 +285,21 @@ def _resumo(res: dict) -> str:
         if _sig(occ)
         else ""
     )
+    reg = fire["occurrence_dml_labelled_region"]
+    reg_txt = (
+        f" Na única rexión onde o mapa está validado, o efecto é {num(reg.estimate * 10, 2)} "
+        f"puntos porcentuais por cada 10 puntos de eucalipto (IC 95 %: "
+        f"{num((reg.estimate - 1.96 * reg.se) * 10, 2)} a "
+        f"{num((reg.estimate + 1.96 * reg.se) * 10, 2)}; "
+        f"{num(fire['labelled_region_burned_cell_years'])} anos-cela queimados)"
+        + (", tampouco distinguible de cero." if not _sig(reg) else ".")
+    )
     items.append(
         f"- **Incendios, 2018–2023.** Mantendo constantes o relevo, a localización, a presión "
-        f"humana, a meteoroloxía e as demais cubertas, {occ_txt}. {shrub_txt}{rv_txt}"
+        f"humana, a meteoroloxía e as demais cubertas, {occ_txt}. {shrub_txt}{rv_txt}{reg_txt}"
+        " Dado que o mapa de eucalipto non é fiable fóra do norte, a ausencia de efecto non "
+        "demostra que o eucalipto non afecte aos incendios: o dato non ten potencia para "
+        "decidilo."
     )
     sev_txt = "distinguible de cero" if _sig(sev) else "non distinguible de cero"
     items.append(
@@ -392,6 +408,12 @@ def write_brief(res: dict, out_dir: str | Path) -> Path:
 > efecto das plantacións de eucalipto sobre o bosque autóctono e os incendios en Galicia.
 > Os mapas de especies adestráronse con etiquetas de OpenStreetMap, non co Mapa Forestal de
 > España nin co Inventario Forestal Nacional, que non eran accesibles desde este contorno.
+> **O mapa de eucalipto só está validado no norte (cadro de 100 km que abrangue A Coruña, Ferrol e Ortegal),
+> onde están o 91 % das etiquetas de eucalipto.** Nunha validación que deixa fóra
+> cadros enteiros de 100 km, o F1 do eucalipto cae a {num(sm["2024"]["region_cv_f1"][0], 2)}
+> (2024) e {num(sm["2017"]["region_cv_f1"][0], 2)} (2017): fóra desa rexión o mapa non
+> distingue o eucalipto de forma fiable, e iso afecta a todas as estimacións que usan a
+> fracción de eucalipto.
 > Os efectos causais dependen de supostos que se explican na sección 7. O efecto sobre a auga
 > **non se puido estimar** con datos reais (sección 6).
 
@@ -415,6 +437,13 @@ de NDVI, NDMI e NBR). Exactitude en validación cruzada por bloques espaciais de
 **{num(s17["spatial_cv_accuracy"], 3)}** (2017) e **{num(s24["spatial_cv_accuracy"], 3)}**
 (2024). Kappa {num(s17["kappa"], 3)} e {num(s24["kappa"], 3)}. A exactitude mide o acordo coas
 etiquetas de OpenStreetMap, que non son unha mostra aleatoria.
+
+Validación por rexións (deixando fóra cadros enteiros de 100 km), F1 por clase:
+
+{_md_table(pd.DataFrame({"name": CLASS_NAMES_GL, "2017": sm["2017"]["region_cv_f1"], "2024": sm["2024"]["region_cv_f1"]}), 3)}
+
+O eucalipto non se transfire a rexións sen etiquetas: o 91 % dos píxeles de adestramento de
+eucalipto están nun só cadro de 100 km.
 
 Superficies. A columna «superficie estimada» corrixe o mapa invertindo a matriz de confusión
 das etiquetas de OpenStreetMap. Esa corrección só é fiable se as etiquetas son puras: se algúns
