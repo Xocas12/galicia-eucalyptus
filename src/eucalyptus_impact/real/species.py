@@ -239,26 +239,25 @@ def build_training(period: str, per_class: int, seed: int, exclude_square: int |
     return rows, cols, y, src
 
 
-def north_transfer(period: str, seed: int = 0, n_test: int = 60_000) -> dict:
-    """Train without the northern square, test on its OSM labels (never seen, never cleaned).
+def north_transfer(test_cube, test_lab, seed: int = 0, n_test: int = 60_000) -> dict:
+    """Train on 2024 without the northern square, test on its OSM labels (never seen, never
+    cleaned) in the given imagery.
 
     This is the transfer test the eucalyptus map has to pass: the pseudo-labels come from a rule
     applied elsewhere, and the OSM eucalyptus labels are almost all in this square.
     """
-    L = all_layers()
-    cube = build_period(period)
-    lab = training_labels(L, period)
-    r, c, y, _ = build_training(period, 25_000, seed, exclude_square=NORTH_SQUARE)
-    model = make_classifier(seed).fit(_pixels_features(cube, r, c), y)
-    tr_, tc_ = np.nonzero(lab < 255)
+    from sklearn.metrics import precision_score, recall_score
+
+    cube24 = build_period("2024")
+    r, c, y, _ = build_training("2024", 25_000, seed, exclude_square=NORTH_SQUARE)
+    model = make_classifier(seed).fit(_pixels_features(cube24, r, c), y)
+    tr_, tc_ = np.nonzero(test_lab < 255)
     in_n = _square(tr_, tc_) == NORTH_SQUARE
     tr_, tc_ = tr_[in_n], tc_[in_n]
     idx = np.random.default_rng(seed).choice(len(tr_), min(n_test, len(tr_)), replace=False)
     tr_, tc_ = tr_[idx], tc_[idx]
-    ty = lab[tr_, tc_].astype(int)
-    p = model.predict(_pixels_features(cube, tr_, tc_))
-    from sklearn.metrics import precision_score, recall_score
-
+    ty = test_lab[tr_, tc_].astype(int)
+    p = model.predict(_pixels_features(test_cube, tr_, tc_))
     return {
         "euc_f1": float(f1_score(ty == 0, p == 0)),
         "euc_precision": float(precision_score(ty == 0, p == 0, zero_division=0)),
@@ -267,6 +266,51 @@ def north_transfer(period: str, seed: int = 0, n_test: int = 60_000) -> dict:
         "f1": f1_score(ty, p, labels=np.arange(6), average=None, zero_division=0).tolist(),
         "n_test": len(ty),
     }
+
+
+def normalised_2017_cube(n_sample: int = 300_000, seed: int = 0) -> np.memmap:
+    """2017 composites mapped onto the 2024 radiometric distribution (relative normalisation).
+
+    Two independently trained classifiers put the eucalyptus area 25% apart between 2017 and
+    2024, which is not credible: 2017 has fewer winter scenes and older processing. Instead,
+    each month and index of the 2017 cube is quantile-mapped onto 2024 using pixels that were
+    stable in between (no Hansen loss 2017-2024, no EFFIS burn 2018-2023), and the 2024 model
+    classifies both years. Change then comes from the imagery, not from two different models.
+    """
+    path = INTERIM / "s2_2017_norm.f16"
+    done = INTERIM / "s2_2017_norm.done"
+    ny, nx = GRID_40M.shape
+    shape = (12, 3, ny, nx)
+    if done.exists():
+        return np.memmap(path, dtype="float16", mode="r", shape=shape)
+    L = all_layers()
+    src, ref = build_period("2017"), build_period("2024")
+    ly = L["hansen"]["lossyear40"]
+    stable = (L["aoi"]["mask40"] == 1) & ~((ly >= 17) & (ly <= 24))
+    for y_ in range(2018, 2024):
+        stable &= ~L["effis"][f"burned40_{y_}"].astype(bool)
+    rr, cc = np.nonzero(stable)
+    idx = np.random.default_rng(seed).choice(len(rr), min(n_sample, len(rr)), replace=False)
+    rr, cc = rr[idx], cc[idx]
+    qs = np.linspace(0, 100, 201)
+    out = np.memmap(path, dtype="float16", mode="w+", shape=shape)
+    for m in range(12):
+        for b in range(3):
+            a = np.asarray(src[m, b, rr, cc], dtype="float32")
+            t = np.asarray(ref[m, b, rr, cc], dtype="float32")
+            ok = np.isfinite(a) & np.isfinite(t)
+            if ok.sum() < 1000:  # e.g. October 2016, before the archive starts
+                out[m, b] = src[m, b]
+                continue
+            qa, qt = np.percentile(a[ok], qs), np.percentile(t[ok], qs)
+            qa = np.maximum.accumulate(qa + np.arange(len(qa)) * 1e-9)
+            for r0 in range(0, ny, 1000):
+                blk = np.asarray(src[m, b, r0 : r0 + 1000], dtype="float32")
+                mapped = np.interp(blk, qa, qt)
+                out[m, b, r0 : r0 + 1000] = np.where(np.isfinite(blk), mapped, np.nan)
+    out.flush()
+    done.write_text("ok")
+    return np.memmap(path, dtype="float16", mode="r", shape=shape)
 
 
 def train_period(period: str, per_class: int = 30_000, seed: int = 0, n_folds: int = 5):
@@ -291,7 +335,7 @@ def train_period(period: str, per_class: int = 30_000, seed: int = 0, n_folds: i
             y[osm], cv_pred[osm], labels=labels, average=None, zero_division=0
         ).tolist(),
         "confusion": confusion_matrix(y, cv_pred, labels=labels).tolist(),
-        "north_transfer": north_transfer(period, seed),
+        "north_transfer": north_transfer(cube, training_labels(all_layers(), period), seed),
     }
     nt = metrics["north_transfer"]
     log.info(
@@ -307,10 +351,10 @@ def train_period(period: str, per_class: int = 30_000, seed: int = 0, n_folds: i
     return model, metrics, (y, cv_pred)
 
 
-def predict_period(period: str, model, chunk_rows: int = 160):
+def predict_period(period: str, model, chunk_rows: int = 160, cube=None):
     """Class map and max probability (40 m) and soft class fractions (1 km) for the whole AOI."""
     L = all_layers()
-    cube = build_period(period)
+    cube = build_period(period) if cube is None else cube
     mask = L["aoi"]["mask40"].astype(bool)
     ny, nx = GRID_40M.shape
     cls = np.full((ny, nx), 255, "uint8")
@@ -339,17 +383,28 @@ def predict_period(period: str, model, chunk_rows: int = 160):
 
 @cached_npz("species")
 def species_maps(per_class: int = 30_000, seed: int = 0):
-    """Train, validate and apply the classifier for both periods (cached)."""
+    """Train on 2024, classify 2024 and the radiometrically normalised 2017 imagery (cached)."""
     out = {}
-    for period in ("2017", "2024"):
-        model, metrics, (y, cvp) = train_period(period, per_class, seed)
-        cls, pmax, frac = predict_period(period, model)
+    model, metrics, (y, cvp) = train_period("2024", per_class, seed)
+    for period, cube in (("2024", build_period("2024")), ("2017", normalised_2017_cube())):
+        cls, pmax, frac = predict_period(period, model, cube=cube)
         out[f"class40_{period}"] = cls
         out[f"pmax40_{period}"] = pmax
         out[f"frac_{period}"] = frac
+        # One model, so the area correction uses the same cross-validated confusion.
         out[f"cv_true_{period}"] = y
         out[f"cv_pred_{period}"] = cvp
-        pd.Series(metrics).to_json(INTERIM / f"species_metrics_{period}.json")
+    m17 = dict(metrics)
+    m17["model"] = "2024 model applied to 2017 imagery quantile-mapped onto 2024"
+    m17["north_transfer"] = north_transfer(
+        normalised_2017_cube(), training_labels(all_layers(), "2017"), seed
+    )
+    pd.Series(metrics).to_json(INTERIM / "species_metrics_2024.json")
+    pd.Series(m17).to_json(INTERIM / "species_metrics_2017.json")
+    log.info(
+        "species 2017 (normalised imagery): north transfer eucalyptus F1 %.2f",
+        m17["north_transfer"]["euc_f1"],
+    )
     return out
 
 
