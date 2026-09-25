@@ -415,3 +415,88 @@ def inventory_check() -> dict:
         res["map_euc_share_at_forest_plots"] = float((m[forest.to_numpy()] == 0).mean())
         out[name] = res
     return out
+
+
+PLOT_LABEL = {
+    "eucalipto": 0,
+    "piñeiro sen eucalipto": 1,
+    "frondosas sen eucalipto nin piñeiro": 2,
+    "só mato": 3,
+}
+
+
+def inventory_training_experiment(seed: int = 0, weights=(5.0, 20.0)) -> dict:
+    """Does adding inventory plots to the training labels improve the map?
+
+    Plots are split by 10 km blocks into halves. Plots in the training half that were not
+    disturbed after 2010 (so their label probably still holds) add 3 x 3 pixels each to the
+    usual training set (cleaned OSM labels + pseudo-labels), with extra weight. Every model is
+    scored on the plots of the other half, the current map included.
+    """
+    from ..geo.grid import block_ids
+    from .s2 import build_period
+    from .species import _pixels_features, build_training, make_classifier
+
+    plots = inventory_plots(gbif_records())
+    aoi = np.load(INTERIM / "aoi.npz")["mask40"]
+    plots = plots[aoi[plots["row"], plots["col"]] > 0].reset_index(drop=True)
+    ly = np.load(INTERIM / "hansen.npz")["lossyear40"].astype(int)
+    ef = np.load(INTERIM / "effis.npz")
+    burnt = np.zeros(ly.shape, bool)
+    for y in range(2018, 2024):
+        burnt |= ef[f"burned40_{y}"]
+    r, c = plots["row"].to_numpy(), plots["col"].to_numpy()
+    dist = np.zeros(len(r), bool)
+    for dr in (-1, 0, 1):
+        for dc in (-1, 0, 1):
+            rr, cc = np.clip(r + dr, 0, ly.shape[0] - 1), np.clip(c + dc, 0, ly.shape[1] - 1)
+            dist |= (ly[rr, cc] >= 10) | burnt[rr, cc]
+    plots["disturbed"] = dist
+    plots["y"] = plots["plot_type"].map(PLOT_LABEL)
+    blk = block_ids(GRID_40M, 10)[r, c]
+    rng = np.random.default_rng(seed)
+    ub = np.unique(blk)
+    train_blocks = set(rng.choice(ub, len(ub) // 2, replace=False).tolist())
+    is_train = np.array([b in train_blocks for b in blk])
+    te = plots[~is_train]
+    tr = plots[is_train & ~plots["disturbed"].to_numpy()]
+
+    def score(pred, d):
+        e = d["y"].to_numpy() == 0
+        m = pred == 0
+        tp = int((m & e).sum())
+        p, rc = tp / max(int(m.sum()), 1), tp / max(int(e.sum()), 1)
+        return {"n": len(d), "recall": rc, "precision": p, "f1": 2 * p * rc / max(p + rc, 1e-9)}
+
+    cube = build_period("2024")
+    cur = np.load(INTERIM / "species.npz")["class40_2024"]
+    out = {"n_train_plots": len(tr), "n_test_plots": len(te)}
+    out["current_map"] = score(cur[te["row"], te["col"]], te)
+    rows, cols, y, _ = build_training("2024", 30_000, seed)
+    X = _pixels_features(cube, rows, cols)
+    offs = [(dr, dc) for dr in (-1, 0, 1) for dc in (-1, 0, 1)]
+    ri = np.concatenate([tr["row"].to_numpy() + dr for dr, _ in offs])
+    ci = np.concatenate([tr["col"].to_numpy() + dc for _, dc in offs])
+    yi = np.tile(tr["y"].to_numpy(), len(offs))
+    Xi = _pixels_features(cube, ri, ci)
+    Xt = _pixels_features(cube, te["row"].to_numpy(), te["col"].to_numpy())
+    variants = {"refit": (X, y, np.ones(len(y)))}
+    for w in weights:
+        variants[f"inventory_w{w:g}"] = (
+            np.vstack([X, Xi]),
+            np.concatenate([y, yi]),
+            np.concatenate([np.ones(len(y)), np.full(len(yi), w)]),
+        )
+    ag = y >= 4
+    variants["inventory_only"] = (
+        np.vstack([X[ag], Xi]),
+        np.concatenate([y[ag], yi]),
+        np.concatenate([np.ones(int(ag.sum())), np.full(len(yi), weights[0])]),
+    )
+    for name, (XX, YY, W) in variants.items():
+        m = make_classifier(seed)
+        m.keep_ = np.isfinite(XX).any(axis=0)
+        m.model.fit(XX[:, m.keep_], YY, sample_weight=W)
+        out[name] = score(m.predict(Xt), te)
+        log.info("inventory experiment %s: %s", name, out[name])
+    return out

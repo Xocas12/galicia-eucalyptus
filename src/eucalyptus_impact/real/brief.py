@@ -67,7 +67,12 @@ GL.update(
         "ci_high": "IC 95 % superior",
         "2017": "2017",
         "2024": "2024",
-        "subset": "puntos",
+        "subset": "subconxunto",
+        "n_plots": "parcelas",
+        "n_euc_plots": "parcelas con eucalipto",
+        "precision": "precisión",
+        "f1": "F1",
+        "plot_type": "tipo de parcela",
         "n_euc": "puntos de eucalipto",
         "n_other_forest": "puntos doutro arboredo",
         "recall": "sensibilidade",
@@ -126,51 +131,132 @@ def _reference_table(ref: dict, period: str) -> pd.DataFrame:
     return pd.DataFrame(rows)
 
 
-def _reference_section(ref: dict | None) -> str:
-    if not ref:
-        return (
-            "### Comprobación independente\n\nNon dispoñible: non se descargaron os rexistros "
-            "de GBIF."
+PLOT_SUBSETS = ["todo", "fora_do_norte", "fora_das_etiquetas", "norte"]
+PLOT_TYPES_ORDER = [
+    "eucalipto",
+    "piñeiro sen eucalipto",
+    "frondosas sen eucalipto nin piñeiro",
+    "só mato",
+]
+
+
+def _inventory_tables(inv: dict, period: str) -> tuple[pd.DataFrame, pd.DataFrame]:
+    rows = []
+    for k in PLOT_SUBSETS:
+        r = inv[period][k]
+        rows.append(
+            {
+                "subset": k,
+                "n_plots": r["n_plots"],
+                "n_euc_plots": r["n_euc_plots"],
+                "recall": r["recall"],
+                "precision": r["precision"],
+                "f1": r["f1"],
+                "false_euc_rate": r["false_euc_rate"],
+            }
         )
-    r24 = ref["2024"]
-    genus = pd.DataFrame(r24["by_genus"]).sort_values("n", ascending=False)
-    genus = genus[genus["n"] >= 20]
-    return f"""### Comprobación independente con rexistros de GBIF
+    bt = pd.DataFrame(inv[period]["by_type"]).set_index("plot_type").reindex(PLOT_TYPES_ORDER)
+    names = [*CLASS_NAMES_GL, "sen datos"]
+    bt = bt.rename(columns={str(k): v for k, v in enumerate(names)})
+    bt = bt.rename(columns=dict(enumerate(names)))
+    bt = bt.reset_index()[["plot_type", "n", *CLASS_NAMES_GL]]
+    return pd.DataFrame(rows), bt
 
-O Mapa Forestal de España e as parcelas do IFN4 non eran accesibles desde este contorno. Como
-referencia independente usáronse as observacións de árbores e matogueiras de Galicia no
-arquivo de GBIF (instantánea {ref["snapshot"]}; iNaturalist, Observation.org, herbarios e outras
-coleccións), que non comparten orixe coas etiquetas de OpenStreetMap. Filtros: observacións
-directas, incerteza de coordenadas de 60 m como máximo, 2019–2025 para o mapa de 2024 e
-2014–2018 para o de 2017, un rexistro por xénero e píxel. Quedan {num(r24["n_points"])}
-puntos para 2024.
 
-Son datos só de presenza e oportunistas: abundan nas beiras de camiños, parques e bordos de
-masa, e un punto pode ser unha árbore illada nun píxel doutra cuberta. Por iso mídese a
-**sensibilidade** (dos puntos onde se viu eucalipto, fracción que o mapa chama eucalipto) e a
-fracción do resto do arboredo que o mapa toma por eucalipto. A precisión e o F1 calcúlanse
-supoñendo que o eucalipto é o {num(r24["prior_euc"] * 100, 3)} % do arboredo, a proporción
-do propio mapa. A columna «3×3 píxeles» acepta o acerto nun píxel veciño (erro do GPS, bordos).
+def _experiment_txt(ex: dict | None) -> str:
+    if not ex:
+        return ""
+    base = ex["current_map"]["f1"]
+    added = [v["f1"] for k, v in ex.items() if k.startswith("inventory_w")]
+    better = max(added) > base + 0.02
+    return (
+        "- **Adestrar coas parcelas "
+        + ("mellora o mapa" if better else "non mellora o mapa")
+        + f".** Nun experimento, as parcelas da metade dos bloques de 10 km "
+        f"({num(ex['n_train_plots'])} sen perturbación desde 2010) engadíronse ao adestramento "
+        f"e avaliouse nas {num(ex['n_test_plots'])} da outra metade: F1 {num(base, 2)} co mapa "
+        f"actual e {num(min(added), 2)}–{num(max(added), 2)} coas parcelas; adestrando só coas "
+        f"parcelas, {num(ex['inventory_only']['f1'], 2)}. Unha parcela con algún eucalipto non é "
+        "unha boa etiqueta para un píxel de 40 m, así que este acordo é en parte un teito da "
+        "referencia, non só do mapa."
+    )
+
+
+def _reference_section(
+    ref: dict | None, inv: dict | None = None, transfer_f1: float = float("nan")
+) -> str:
+    parts = []
+    if inv:
+        i24 = inv["2024"]
+        t24, b24 = _inventory_tables(inv, "2024")
+        t17, _ = _inventory_tables(inv, "2017")
+        t17i, _ = _inventory_tables(inv, "2017_independent")
+        parts.append(f"""### Comprobación con parcelas de inventario forestal
+
+O Mapa Forestal de España e o IFN4 non se podían descargar desde este contorno, pero o arquivo
+de GBIF contén un conxunto co deseño das parcelas do Inventario Forestal Nacional: unha malla
+sistemática de 1 km en toda Galicia, parcelas de 25 m de radio e a lista de especies de cada
+unha, sen data (se é o IFN4, o traballo de campo en Galicia foi arredor de 2009). O título do
+conxunto non se puido ler (a API de GBIF está bloqueada), así que se identifica polo deseño.
+Quedan {num(inv["n_plots"])} parcelas. Por ser unha mostra sistemática, dá unha precisión
+de deseño, non só a sensibilidade.
+
+Unha parcela conta como «eucalipto» se a lista inclúe algún eucalipto; non se sabe se domina.
+Precisión: das parcelas que o mapa chama eucalipto, fracción que ten eucalipto. Sensibilidade:
+das parcelas con eucalipto, fracción que o mapa chama eucalipto.
 
 Mapa de 2024:
 
+{_md_table(t24, 3, values=("subset",))}
+
+Mapa de 2017 retrodatado e mapa de 2017 independente:
+
+{_md_table(t17, 3, values=("subset",))}
+
+{_md_table(t17i, 3, values=("subset",))}
+
+Clase do mapa de 2024 segundo o tipo de parcela (fracción de parcelas):
+
+{_md_table(b24, 3)}
+
+Que se conclúe:
+
+- **No agregado o mapa acerta.** O {num(i24["map_euc_share_at_forest_plots"] * 100, 3)} % das
+  parcelas arboradas está no mapa como eucalipto, e o {num(i24["plot_euc_share"] * 100, 3)} %
+  das parcelas arboradas ten eucalipto.
+- **Parcela a parcela o acordo é baixo**: F1 {num(i24["todo"]["f1"], 2)} en toda Galicia e
+  {num(i24["fora_do_norte"]["f1"], 2)} fóra do norte, lonxe do
+  {num(transfer_f1, 2)} da proba de transferencia con OpenStreetMap. Esa proba era optimista.
+- **Parte do desacordo é tempo, non erro.** Das parcelas sen eucalipto que o mapa chama
+  eucalipto, o {num(i24["disturbed_share_false_euc"] * 100, 3)} % tivo corta ou lume despois
+  de 2010, fronte ao {num(i24["disturbed_share_other"] * 100, 3)} % do resto: son
+  probablemente plantacións posteriores ao inventario.
+{_experiment_txt(inv.get("experiment"))}
+
+Consecuencia: as cifras de superficie son plausibles, pero a localización do eucalipto píxel a
+píxel é incerta. Os efectos estimados sobre os incendios están atenuados por este erro
+(sección 7).""")
+    if ref:
+        r24 = ref["2024"]
+        genus = pd.DataFrame(r24["by_genus"]).sort_values("n", ascending=False)
+        genus = genus[genus["n"] >= 20]
+        parts.append(f"""### Comprobación con observacións de GBIF
+
+Observacións directas de árbores e matogueiras en Galicia (iNaturalist, Observation.org e
+outras), incerteza de coordenadas de 60 m como máximo, 2019–2025, un rexistro por xénero e
+píxel: {num(r24["n_points"])} puntos. Os naturalistas case non rexistran plantacións, así que hai
+poucos puntos de eucalipto, e para 2017 non abondan. Precisión e F1 calculadas supoñendo que o
+eucalipto é o {num(r24["prior_euc"] * 100, 3)} % do arboredo. A columna «3×3 píxeles» acepta o
+acerto nun píxel veciño.
+
 {_md_table(_reference_table(ref, "2024"), 3, values=("subset",))}
 
-Mapa de 2017 (retrodatado):
+Fracción dos puntos de cada xénero que o mapa de 2024 clasifica como eucalipto:
 
-{_md_table(_reference_table(ref, "2017"), 3, values=("subset",))}
-
-Mapa de 2017 clasificado de forma independente:
-
-{_md_table(_reference_table(ref, "2017_independent"), 3, values=("subset",))}
-
-Fracción dos puntos de cada xénero que o mapa de 2024 clasifica como eucalipto (xéneros con
-20 puntos ou máis):
-
-{_md_table(genus[["genus", "n", "share_mapped_euc"]], 3)}
-
-Isto non substitúe unha mostra probabilística do inventario oficial, que segue sendo a proba
-axeitada."""
+{_md_table(genus[["genus", "n", "share_mapped_euc"]], 3)}""")
+    if not parts:
+        return "### Comprobación independente\n\nNon dispoñible."
+    return "\n\n".join(parts)
 
 
 def _water_section(w: dict | None) -> str:
@@ -472,8 +558,9 @@ def _resumo(res: dict) -> str:
         f"- **Superficie de eucalipto (mapa).** {num(a24['map_area_ha'] / 1e3, 3)} mil ha en 2024 "
         f"e {num(a17['map_area_ha'] / 1e3, 3)} mil ha en 2017 (reconto de píxeles; "
         f"{num(a24['soft_area_ha'] / 1e3, 3)} mil ha en 2024 sumando probabilidades). **Estas "
-        "cifras non están validadas** co inventario oficial (IFN, Mapa Forestal de España): "
-        "compárense con el antes de citalas (sección 2)." + _ref_resumo(res.get("reference"))
+        "cifras non están validadas** co inventario oficial descargado do Ministerio (IFN, Mapa "
+        "Forestal de España): compárense con el antes de citalas (sección 2)."
+        + _ref_resumo(res.get("reference"))
     )
     items.append(
         f"- **Substitución de bosque autóctono.** Entre 2017 e 2024, {num(nat['confident'])} ha "
@@ -580,18 +667,26 @@ def _resumo(res: dict) -> str:
     return "\n".join(items)
 
 
-def _ref_resumo(ref: dict | None) -> str:
+def _ref_resumo(ref: dict | None, inv: dict | None = None) -> str:
+    if inv:
+        i = inv["2024"]
+        f = i["fora_do_norte"]
+        return (
+            f" Contra {num(inv['n_plots'])} parcelas dunha malla de inventario forestal (GBIF), o "
+            f"mapa dá eucalipto no {num(i['map_euc_share_at_forest_plots'] * 100, 3)} % das "
+            f"parcelas arboradas e as parcelas teñen eucalipto no "
+            f"{num(i['plot_euc_share'] * 100, 3)} %: o total cadra. Parcela a parcela o acordo é "
+            f"baixo (F1 {num(f['f1'], 2)} fóra do norte), en parte porque as parcelas son "
+            "anteriores a moitas plantacións."
+        )
     if not ref:
         return ""
     r = ref["2024"].get("fora_do_norte")
     if not r or r.get("too_few"):
         return ""
-    lo, hi = r["recall_ci"]
     return (
         f" Fóra do norte, dos {num(r['n_euc'])} puntos de eucalipto de GBIF o mapa de 2024 "
-        f"recoñece o {num(r['recall'] * 100, 3)} % (IC 95 %: {num(lo * 100, 3)}–"
-        f"{num(hi * 100, 3)} %) e toma por eucalipto o {num(r['false_euc_rate'] * 100, 3)} % "
-        "dos puntos doutro arboredo."
+        f"recoñece o {num(r['recall'] * 100, 3)} %."
     )
 
 
@@ -687,8 +782,9 @@ def write_brief(res: dict, out_dir: str | Path) -> Path:
 > {num(sm["2024"]["north_transfer"]["euc_precision"], 2)}, sensibilidade
 > {num(sm["2024"]["north_transfer"]["euc_recall"], 2)}) e
 > {num(sm["2017"]["north_transfer"]["euc_f1"], 2)} en 2017. Sen esta corrección era
-> practicamente cero. Como comprobación independente en toda Galicia úsanse as observacións
-> de árbores de GBIF (sección 2), que non son unha mostra probabilística.
+> practicamente cero. A comprobación independente con parcelas dunha malla de inventario
+> forestal en toda Galicia (sección 2) é máis severa: a superficie total cadra, pero parcela a
+> parcela o acordo é baixo.
 > Os efectos causais dependen de supostos que se explican na sección 7. O efecto sobre a auga
 > **non se puido estimar** con datos reais; a sección 6 avalía se sería medible con aforos.
 
@@ -741,7 +837,7 @@ erro do mapa.
 
 {_md_table(areas["2017"][area_cols], 5, values=("name",))}
 
-{_reference_section(res.get("reference"))}
+{_reference_section(res.get("reference"), res.get("inventory"), sm["2024"]["north_transfer"]["euc_f1"])}
 
 ## 3. Perda de bosque autóctono
 
@@ -823,8 +919,10 @@ porque se manteñen as restricións a novas plantacións):
   bosque frondoso perennifolio de Galicia é eucalipto; as aciñeiras e sobreiras quedarían mal
   clasificadas. A comprobación con GBIF (sección 2) é independente pero oportunista; a
   validación definitiva debe facerse co Mapa Forestal de España ou co IFN4.
-- **Erro do mapa.** O erro do mapa atenúa os efectos cara a cero. Non se aplicou SIMEX porque
-  non hai unha mostra de referencia independente para medir a varianza do erro.
+- **Erro do mapa.** As parcelas de inventario mostran que o erro de localización do eucalipto
+  é grande, e ese erro atenúa os efectos cara a cero. Non se aplicou SIMEX porque as parcelas
+  (presenza de eucalipto nun círculo de 25 m, sen data) non miden o mesmo ca o píxel, así que
+  non dan a varianza do erro.
 - **Incendios.** EFFIS rexistra sobre todo os incendios grandes; os pequenos quedan fóra. Só hai
   seis anos (2018–2023) e 2022 domina o total.
 - **Causalidade.** Os efectos son causais só se non queda confusión relevante sen medir (por

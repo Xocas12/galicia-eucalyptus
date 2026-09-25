@@ -36,7 +36,7 @@ from ..geo.raster_ops import distance_to, focal_mean
 from ..validation.spatial_cv import SpatialBlockKFold
 from .common import GRID_1KM, INTERIM, log
 from .layers import EUC, NATIVE, PINE, all_layers
-from .reference import reference_check
+from .reference import inventory_check, inventory_training_experiment, reference_check
 from .species import CLASS_NAMES, PIXEL_HA, area_table, species_maps, transition_table
 from .water import water_analysis
 
@@ -456,6 +456,10 @@ def run_real(seed: int = 0) -> dict:
     res["projections"] = projections(cells, res["fire"], res["susceptibility"], seed=seed)
     log.info("projections done")
     res["reference"] = _cached_json("reference", reference_check)
+    res["inventory"] = _cached_json("inventory_check", inventory_check)
+    res["inventory"]["experiment"] = _cached_json(
+        "inventory_training", lambda: inventory_training_experiment(seed=seed)
+    )
     res["water"] = _cached_json("water", lambda: water_analysis(seed=seed))
     log.info("reference and water done")
     res["panel_summary"] = {

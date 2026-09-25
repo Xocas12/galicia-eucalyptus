@@ -134,7 +134,18 @@ What the real-data run established, and what it did not:
   are backdated from 2024 wherever no harvest or fire happened in between (an independent 2017
   classifier transfers with F1 0.65 and is kept as a sensitivity check). Mapped eucalyptus:
   about 440k ha in 2024 and 489k ha in 2017, with the difference on harvested or burnt pixels.
-  Still not validated against the official forest inventory.
+- **Independent map check.** The official inventory downloads (MFE, IFN) are blocked here, but
+  the GBIF archive on AWS holds a dataset with the design of the national forest inventory: a
+  systematic 1 km grid of 25 m-radius plots across Galicia with species lists and no date
+  (about 6,900 plots). Against these plots the eucalyptus area is right in aggregate (28% of
+  forested plots mapped as eucalyptus; 27.5% of them list eucalyptus), but plot-by-plot
+  agreement is low: F1 0.45 overall and 0.44 outside the north, well below the OSM transfer
+  test. Part of the gap is timing: map-eucalyptus plots whose list has none were cut or burnt
+  after 2010 far more often (64% vs 37%), i.e. likely planted after the survey. Adding the
+  plots to training (block-split experiment) did not improve held-out agreement, so the plot
+  labels (any eucalyptus in a 25 m circle) cap what they can show. Opportunistic GBIF
+  sightings add a secondary check (few eucalyptus points; 38% at the pixel, 74% within one
+  pixel). `real/reference.py`.
 - **Fire (EFFIS 2018–2023, 29,565 cells × 6 years).** Relative to agriculture and other cover,
   10 more points of eucalyptus lower annual burn probability by 0.27 pp (95% CI −0.46 to
   −0.08; robustness value 0.018, so a weak confounder could explain it). Against native
@@ -148,9 +159,18 @@ What the real-data run established, and what it did not:
   restoration benefits by about 40%) projects the scenarios to 2040 with paired uncertainty
   bands. Restoring 25% of eucalyptus in priority cells cuts mean burnt area by about 2,500
   ha/yr (5–95% band 870–3,600); the projections inherit the map sensitivity above.
-- **Water.** Not estimated: no streamflow record was reachable. The catchment code in
-  `models/hydrology.py` runs once gauge data (Augas de Galicia / CEDEX) is supplied.
+- **Water.** No gauge record is reachable (CEDEX, Augas de Galicia, MeteoGalicia, GRDC and
+  Zenodo are blocked), so there is no estimate. `real/water.py` builds everything else:
+  priority-flood routing on the Copernicus DEM, 79 whole non-nested catchments (30–1,500 km²),
+  water-year precipitation and Thornthwaite PET from GHCN stations, catchment cover paths from
+  the 2017/2024 maps dated by Hansen loss or fire, and loaders for CEDEX `afliq.csv`/`estaf.csv`
+  or a generic `stations.csv` + `flows.csv` dropped in `data/raw/gauges/`. A power study on the
+  real catchments (simulated flows with a known effect) shows the estimator is unbiased with
+  correct coverage, but eucalyptus changes by only ~2 points per catchment over 2017–2024, so
+  the minimum detectable effect is ~140 mm/yr per 10 points, far above plausible effects
+  (10–20). A cover history six times longer (e.g. a Landsat back-cast) brings it to ~21, and
+  swapping map versions roughly doubles the estimate, so map error matters as much as noise.
 
-Next steps that would change the conclusions: an independent reference sample across Galicia
-(the Mapa Forestal de España or IFN4 plots), gauge data for the water question, and EFFIS perimeters
+Next steps that would change the conclusions: a dated, pixel-level reference (the Mapa
+Forestal de España polygons or IFN4 plots with dominance), gauge data plus a longer (Landsat) cover history for the water question, and EFFIS perimeters
 before 2018 for more fire years.
