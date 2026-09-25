@@ -23,6 +23,7 @@ os.environ.setdefault("GDAL_CACHEMAX", "256")
 TILES = ["29TMG", "29TMH", "29TMJ", "29TNG", "29TNH", "29TNJ", "29TPG", "29TPH", "29TPJ"]
 PERIODS = {
     "2017": [(2016, m) for m in (10, 11, 12)] + [(2017, m) for m in range(1, 10)],
+    "2018": [(2017, m) for m in (10, 11, 12)] + [(2018, m) for m in range(1, 10)],
     "2024": [(2023, m) for m in (10, 11, 12)] + [(2024, m) for m in range(1, 10)],
 }
 # SCL classes treated as invalid: no data, saturated, cloud shadow, cloud medium/high, cirrus,

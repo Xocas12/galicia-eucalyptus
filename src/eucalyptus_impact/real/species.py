@@ -50,13 +50,23 @@ def training_labels(L: dict, period: str) -> np.ndarray:
     other = np.isin(wc, [50, 60, 80, 90]) & (lab == 255)
     lab[other] = OTHER
     lab[L["aoi"]["mask40"] == 0] = 255
-    if period == "2017":
-        ly = L["hansen"]["lossyear40"]
-        unstable = (ly >= 17) & (ly <= 24)
-        for y in range(2018, 2024):
-            unstable |= L["effis"][f"burned40_{y}"].astype(bool)
-        lab[unstable] = 255
+    if period != "2024":
+        lab[~stable_since(L, int(period))] = 255
     return lab
+
+
+def stable_since(L: dict, year: int) -> np.ndarray:
+    """Pixels with no Hansen loss from `year` to 2024 and no EFFIS burn after `year`.
+
+    Labels drawn today (and 2024 pseudo-labels) are only trusted for an earlier map where the
+    pixel did not change in between.
+    """
+    ly = L["hansen"]["lossyear40"]
+    ok = ~((ly >= year - 2000) & (ly <= 24))
+    for y in range(max(year, 2018), 2024):
+        if y > year or year == 2017:
+            ok &= ~L["effis"][f"burned40_{y}"].astype(bool)
+    return ok
 
 
 def _pixels_features(cube, rows, cols) -> np.ndarray:
@@ -224,11 +234,8 @@ def build_training(period: str, per_class: int, seed: int, exclude_square: int |
     keep = clean_mask(cube, L, r, c, y)
     r, c, y = r[keep], c[keep], y[keep]
     pr, pc = pseudo_eucalyptus_2024(L, seed=seed)
-    if period == "2017":
-        ly = L["hansen"]["lossyear40"][pr, pc]
-        stable = ~((ly >= 17) & (ly <= 24))
-        for yr in range(2018, 2024):
-            stable &= ~L["effis"][f"burned40_{yr}"][pr, pc].astype(bool)
+    if period != "2024":
+        stable = stable_since(L, int(period))[pr, pc]
         pr, pc = pr[stable], pc[stable]
     rows, cols = np.concatenate([r, pr]), np.concatenate([c, pc])
     y = np.concatenate([y, np.zeros(len(pr), int)])
@@ -268,7 +275,7 @@ def north_transfer(test_cube, test_lab, seed: int = 0, n_test: int = 60_000) -> 
     }
 
 
-def normalised_2017_cube(n_sample: int = 300_000, seed: int = 0) -> np.memmap:
+def normalised_cube(period: str = "2017", n_sample: int = 300_000, seed: int = 0) -> np.memmap:
     """2017 composites mapped onto the 2024 radiometric distribution (relative normalisation).
 
     Two independently trained classifiers put the eucalyptus area 25% apart between 2017 and
@@ -277,18 +284,15 @@ def normalised_2017_cube(n_sample: int = 300_000, seed: int = 0) -> np.memmap:
     stable in between (no Hansen loss 2017-2024, no EFFIS burn 2018-2023), and the 2024 model
     classifies both years. Change then comes from the imagery, not from two different models.
     """
-    path = INTERIM / "s2_2017_norm.f16"
-    done = INTERIM / "s2_2017_norm.done"
+    path = INTERIM / f"s2_{period}_norm.f16"
+    done = INTERIM / f"s2_{period}_norm.done"
     ny, nx = GRID_40M.shape
     shape = (12, 3, ny, nx)
     if done.exists():
         return np.memmap(path, dtype="float16", mode="r", shape=shape)
     L = all_layers()
-    src, ref = build_period("2017"), build_period("2024")
-    ly = L["hansen"]["lossyear40"]
-    stable = (L["aoi"]["mask40"] == 1) & ~((ly >= 17) & (ly <= 24))
-    for y_ in range(2018, 2024):
-        stable &= ~L["effis"][f"burned40_{y_}"].astype(bool)
+    src, ref = build_period(period), build_period("2024")
+    stable = (L["aoi"]["mask40"] == 1) & stable_since(L, int(period))
     rr, cc = np.nonzero(stable)
     idx = np.random.default_rng(seed).choice(len(rr), min(n_sample, len(rr)), replace=False)
     rr, cc = rr[idx], cc[idx]
@@ -386,7 +390,7 @@ def species_maps(per_class: int = 30_000, seed: int = 0):
     """Train on 2024, classify 2024 and the radiometrically normalised 2017 imagery (cached)."""
     out = {}
     model, metrics, (y, cvp) = train_period("2024", per_class, seed)
-    for period, cube in (("2024", build_period("2024")), ("2017", normalised_2017_cube())):
+    for period, cube in (("2024", build_period("2024")), ("2017", normalised_cube("2017"))):
         cls, pmax, frac = predict_period(period, model, cube=cube)
         out[f"class40_{period}"] = cls
         out[f"pmax40_{period}"] = pmax
@@ -397,7 +401,7 @@ def species_maps(per_class: int = 30_000, seed: int = 0):
     m17 = dict(metrics)
     m17["model"] = "2024 model applied to 2017 imagery quantile-mapped onto 2024"
     m17["north_transfer"] = north_transfer(
-        normalised_2017_cube(), training_labels(all_layers(), "2017"), seed
+        normalised_cube("2017"), training_labels(all_layers(), "2017"), seed
     )
     pd.Series(metrics).to_json(INTERIM / "species_metrics_2024.json")
     pd.Series(m17).to_json(INTERIM / "species_metrics_2017.json")
