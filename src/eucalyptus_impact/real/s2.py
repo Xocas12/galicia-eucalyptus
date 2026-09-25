@@ -97,6 +97,43 @@ def select_month_dates(year: int, month: int, n_dates: int = 5, min_clear_tiles:
     return {d: by_date[d] for d in sorted(ranked[:n_dates])}
 
 
+def tile_offsets(grids: list[np.ndarray], min_overlap: int = 2000, ridge: float = 1e-3):
+    """Additive offsets per tile and band that best reconcile overlapping tiles of one date.
+
+    Tiles overlap by ~10 km and show the same acquisition there, so the median difference over
+    an overlap measures the pair's radiometric offset (the archive's per-tile atmospheric
+    correction differs slightly). Offsets o solve min sum_ab w_ab (o_a - o_b - d_ab)^2 + ridge *
+    sum o^2, which anchors their mean near zero. Returns an array (n_tiles, n_bands).
+    """
+    if len(grids) < 2:
+        return np.zeros((len(grids), 3))
+    n, nb = len(grids), grids[0].shape[0]
+    out = np.zeros((n, nb))
+    step = 4  # subsample the grid for speed; overlaps hold ~10^5 pixels at 40 m
+    subs = [g[:, ::step, ::step].astype("float32") for g in grids]
+    for b in range(nb):
+        A, y, w = [], [], []
+        for i in range(n):
+            for j in range(i + 1, n):
+                both = np.isfinite(subs[i][b]) & np.isfinite(subs[j][b])
+                k = int(both.sum())
+                if k * step * step < min_overlap:
+                    continue
+                d = float(np.median(subs[i][b][both] - subs[j][b][both]))
+                row = np.zeros(n)
+                row[i], row[j] = 1.0, -1.0
+                A.append(row)
+                y.append(d)
+                w.append(np.sqrt(k))
+        if not A:
+            continue
+        A, y, w = np.array(A), np.array(y), np.array(w)
+        lhs = (A * w[:, None]).T @ A + ridge * np.eye(n)
+        rhs = (A * w[:, None]).T @ y
+        out[:, b] = np.linalg.solve(lhs, rhs)
+    return out
+
+
 ASSET_FILE = {
     "red": ("B04.tif", 4),
     "nir": ("B08.tif", 4),
@@ -196,19 +233,25 @@ def build_period(period: str, threads: int = 4) -> np.memmap:
         mosaics = []
         n_sc = 0
         for scenes in dates.values():
-            # One mosaic per acquisition date: overlapping tiles are the same acquisition, so
-            # averaging them introduces no seam.
+            # One mosaic per acquisition date. Overlapping tiles show the same acquisition, but
+            # the archive's per-tile atmospheric correction differs slightly, so tiles are
+            # harmonised with offsets estimated on their overlaps before averaging.
+            with ThreadPoolExecutor(threads) as ex:
+                grids = [
+                    to_grid(r).astype("float16")
+                    for r in ex.map(safe_indices, scenes)
+                    if r is not None
+                ]
+            n_sc += len(grids)
+            offs = tile_offsets(grids)
             acc = np.zeros((3, ny, nx), "float32")
             cnt = np.zeros((3, ny, nx), "uint8")
-            with ThreadPoolExecutor(threads) as ex:
-                for res in ex.map(safe_indices, scenes):
-                    if res is None:
-                        continue
-                    n_sc += 1
-                    g = to_grid(res)
-                    ok = np.isfinite(g)
-                    acc[ok] += g[ok]
-                    cnt[ok] += 1
+            for g, o in zip(grids, offs, strict=True):
+                g = g.astype("float32") - o[:, None, None].astype("float32")
+                ok = np.isfinite(g)
+                acc[ok] += g[ok]
+                cnt[ok] += 1
+            del grids
             with np.errstate(invalid="ignore", divide="ignore"):
                 mosaics.append((acc / cnt).astype("float16"))
             del acc, cnt

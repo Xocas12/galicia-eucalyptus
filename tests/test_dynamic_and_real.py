@@ -106,3 +106,20 @@ def test_confusion_inversion_recovers_true_shares():
     pred = np.array([rng.choice(k, p=C[t]) for t in y])
     est, _ = confusion_inversion(m, y, pred)
     assert np.allclose(est, pi, atol=0.02)
+
+
+def test_tile_offsets_recover_radiometric_shifts():
+    from eucalyptus_impact.real.s2 import tile_offsets
+
+    rng = np.random.default_rng(0)
+    truth = rng.normal(0.5, 0.1, (1, 400, 600))
+    shifts = [0.0, 0.03, -0.02]
+    grids = []
+    for k, (c0, c1) in enumerate([(0, 250), (200, 450), (400, 600)]):
+        g = np.full_like(truth, np.nan)
+        g[:, :, c0:c1] = truth[:, :, c0:c1] + shifts[k] + rng.normal(0, 0.005, (1, 400, c1 - c0))
+        grids.append(g)
+    off = tile_offsets(grids, min_overlap=100)[:, 0]
+    rel = off - off.mean()
+    expected = np.array(shifts) - np.mean(shifts)
+    assert np.allclose(rel, expected, atol=0.003)
