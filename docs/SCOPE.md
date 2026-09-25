@@ -177,7 +177,7 @@ has the ingestion adapters. The adapters are written but **have not been run fro
 | M0 | Scope (this document), repo skeleton, data catalog | done |
 | M1 | Synthetic simulator with known effects, full pipeline end to end, tests | done |
 | M1b | Robustness: group effects, OVB sensitivity, SIMEX, cluster-size SEs; adapter tests on fixtures | done |
-| M2 | Real-data ingestion → 1 km panel | in progress: object-storage sources (Sentinel-2, WorldCover, Copernicus DEM, Hansen GFC, EFFIS severity, Overture/OSM, GHCN) ingested; MFE/IFN labels and gauges unreachable here |
-| M3 | Species maps 2017 and 2024, error-adjusted areas, 2017→2024 conversion | in progress (OSM-derived labels, not MFE/IFN) |
-| M4 | Causal fire estimates on real data with robustness | in progress (fire); water not estimable without gauges |
-| M5 | Year-by-year projections, restoration priority map, policy brief | in progress: dynamic engine written and validated on the simulator |
+| M2 | Real-data ingestion → 1 km panel | done from object storage (Sentinel-2, WorldCover, Copernicus DEM, Hansen GFC, EFFIS severity, Overture/OSM, GHCN); MFE/IFN labels and river gauges unreachable |
+| M3 | Species maps 2017 and 2024, areas, 2017→2024 conversion | done with OSM labels; eucalyptus validated only in the northern square where its labels are; Landsat back-cast not done |
+| M4 | Causal estimates on real data with robustness | done for fire (no detectable eucalyptus effect; underpowered given the map); water not estimable without gauges |
+| M5 | Year-by-year projections, restoration priority map, policy brief | done: dynamic engine, brief in Galician (`docs/galicia_real/informe.md`) |

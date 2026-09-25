@@ -177,12 +177,15 @@ Contrastes no ano horizonte fronte ao escenario tendencial: o mundo simulado (va
 proxección feita cos efectos causais estimados (efectos DML por clase, ponderados polo risco, para
 os incendios; a curva de Budyko axustada para a escorrentía). Os contrastes pequenos, como o do
 límite, quedan dentro do ruído da simulación, así que o seu signo debe lerse con cautela.
+As dúas últimas columnas de queimados comparan as medias anuais de todo o período: a simulada e a
+do motor dinámico ano a ano, que estima os seus compoñentes só con dous mapas e o historial de
+queimados, como se fai cos datos reais.
 
-| escenario | Δ eucalipto (ha) | Δ queimado simulado (ha/ano) | Δ queimado modelo (ha/ano) | Δ escorrentía simulada (mm) | Δ escorrentía modelo (mm) |
-|---|---|---|---|---|---|
-| Límite / moratoria | -35 873 | -102,3 | -94,73 | 0,674 | 0,6627 |
-| Restauración dirixida | -242 401 | -2 437 | -4 572 | 3,646 | 3,924 |
-| Restauración aleatoria | -242 347 | -1 899 | -2 866 | 3,877 | 4,116 |
+| escenario | Δ eucalipto (ha) | Δ queimado simulado (ha/ano) | Δ queimado modelo (ha/ano) | Δ queimado medio simulado (ha/ano) | Δ queimado medio dinámico (ha/ano) | Δ escorrentía simulada (mm) | Δ escorrentía modelo (mm) |
+|---|---|---|---|---|---|---|---|
+| Límite / moratoria | -35 873 | -102,3 | -94,73 | -52,55 | -322,2 | 0,674 | 0,6627 |
+| Restauración dirixida | -242 401 | -2 437 | -4 572 | -2 058 | -2 963 | 3,646 | 3,924 |
+| Restauración aleatoria | -242 347 | -1 899 | -2 866 | -1 519 | -2 120 | 3,877 | 4,116 |
 
 ![escenarios](scenarios.png)
 

@@ -512,8 +512,8 @@ causais estimados de cada cuberta; o lume converte parte das frondosas e dos pi�
 e a plantación de eucalipto segue a taxa de conversión bruta observada en 2017–2024 entre
 píxeles fiables ({num(proj["components"].diagnostics["conv_rate_target"] * 100, 2)} % ao ano da
 superficie sen eucalipto), reforzada polos incendios recentes. O motor non inclúe perdas de
-eucalipto agás a restauración, así que o crecemento no escenario tendencial é un límite superior. O modelo validouse na paisaxe sintética, onde sobreestimou os beneficios da
-restauración nun 25–35 %. As bandas son os percentís 5 e 95 de 40 simulacións que combinan a
+eucalipto agás a restauración, así que o crecemento no escenario tendencial é un límite superior. O modelo validouse na paisaxe sintética (1 km), onde sobreestimou uns 40 % os beneficios
+da restauración e moito máis os do límite, porque sobreestima a plantación de referencia. As bandas son os percentís 5 e 95 de 40 simulacións que combinan a
 variabilidade meteorolóxica e a incerteza dos efectos.
 
 {_md_table(proj["contrasts"], 4, values=("scenario",))}

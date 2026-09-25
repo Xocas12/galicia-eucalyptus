@@ -6,10 +6,13 @@ to **native forest**, **wildfire** and **water**, and what alternative forest pl
 - **Scope, estimands, data inventory and threats to validity:** [`docs/SCOPE.md`](docs/SCOPE.md)
 - **Latest synthetic validation report (1 km, 2000–2024), in Galician:** [`docs/synthetic_validation/report.md`](docs/synthetic_validation/report.md)
 
-> **No real-data result exists yet.** The pipeline currently runs on a *synthetic* Galicia-like
-> landscape with hand-set causal effects, to prove the estimators recover known answers before
-> they touch real data. The real-data adapters (`data/sources.py`) are written but have not been
-> run. Do not cite any number from this repo as a finding about Galicia.
+- **Real-data brief for Galicia (in Galician):** [`docs/galicia_real/informe.md`](docs/galicia_real/informe.md)
+
+> **Read the real-data results with their caveats.** The species maps are trained on
+> OpenStreetMap labels, not the official forest map or inventory (unreachable from the build
+> environment), and 91% of the eucalyptus labels sit in one 100 km square in the north. Outside
+> it, the eucalyptus layer does not validate, and that limits every estimate that uses it.
+> Numbers from the synthetic runs are properties of the methods, not facts about Galicia.
 
 Self-contained subproject: it shares nothing with `gosplan/` at the repository root and has its own
 `pyproject.toml`, tests and virtual environment.
@@ -19,7 +22,7 @@ Self-contained subproject: it shares nothing with `gosplan/` at the repository r
 ```bash
 cd galicia-eucalyptus
 uv venv && uv pip install -e '.[dev]'          # add '.[geo]' for real-data ingestion
-.venv/bin/pytest                                # 35 tests, ~2.5 min
+.venv/bin/pytest                                # 43 tests, ~4 min
 .venv/bin/euc run --config configs/fast.yaml    # 4 km smoke run, ~1 min  -> outputs/fast/
 .venv/bin/euc run --config configs/default.yaml # 1 km full run, ~6 min   -> outputs/default/
 .venv/bin/euc catalog                           # the real data sources
@@ -95,21 +98,49 @@ src/eucalyptus_impact/
   causal/                DML (partially linear, clustered SEs), learners, matching,
                          sensitivity (OVB bounds), SIMEX
   validation/            spatial block k-fold
-  scenarios.py           policy projections and restoration prioritisation
+  scenarios.py           policy projections and restoration prioritisation (synthetic)
+  dynamic.py             year-by-year projection engine (synthetic and real)
+  real/                  real Galicia pipeline: layers, Sentinel-2 composites, species maps,
+                         analysis, Galician brief
   pipeline.py, reporting.py, cli.py
 tests/                   unit tests per estimator + end-to-end run
 ```
 
-## Next step: real data (milestone M2)
+## Real data (Galicia)
 
-The ingestion adapters are unit-tested against local fixtures (GeoPackage, GeoTIFF and CSV in
-the providers' layouts) but have not yet been run against the live endpoints.
+```bash
+uv pip install -e '.[geo,dev]' pyarrow
+.venv/bin/euc real fetch   # ~1.5 h: layers + Sentinel-2 monthly composites for 2017 and 2024
+.venv/bin/euc real run     # ~1 h: species maps, fire and conversion analysis, projections, brief
+```
 
-1. Build Sentinel-2 monthly index cubes with `sources.search_sentinel2` and
-   `sentinel2_monthly_indices`. Label pixels from MFE polygons (`load_mfe_labels`) and keep IFN
-   plots as independent reference data.
-2. Rasterise EFFIS perimeters to the 1 km grid (`burned_panel`) and add FIRMS counts, ERA5-Land
-   and CEMS FWI.
-3. Delineate gauged basins on the Copernicus DEM and compute annual runoff and low flow from the
-   Anuario de Aforos (`gauge_annual_runoff`).
-4. Assemble the same panel columns as `features/panel.py` and run the models unchanged.
+Everything comes from public object storage: Sentinel-2 L2A COGs, ESA WorldCover, the
+Copernicus DEM, Hansen Global Forest Change v1.12, EFFIS burn severity 2018–2023, Overture Maps
+(OpenStreetMap land, land-use and building layers), NOAA GHCN stations and Natural Earth.
+Downloads are cached under `data/` (git-ignored).
+
+What the real-data run established, and what it did not:
+
+- **Imagery.** Monthly NDVI/NDMI/NBR composites at 40 m. Each acquisition date is mosaicked
+  across tiles after removing per-tile radiometric offsets estimated on tile overlaps (the
+  archive's per-tile atmospheric correction left seams up to ~0.02).
+- **Species maps.** Spatial-block CV accuracy is about 0.80 against OSM labels. Holding out
+  whole 100 km squares, eucalyptus F1 falls to about 0: the labels are concentrated in the north
+  and the map does not transfer. Mapped eucalyptus area (about 145–195k ha) is below published
+  figures, so the map very likely underestimates eucalyptus.
+- **Fire (EFFIS 2018–2023, 29,565 cells × 6 years).** No effect of eucalyptus fraction on burn
+  probability or severity is distinguishable from zero; shrub cover does raise burn
+  probability. With the eucalyptus layer this weak, a null here is lack of power, not evidence
+  of no effect.
+- **Native forest.** 2017→2024 native-to-eucalyptus conversion is reported three ways (all
+  pixels, confident pixels, and confident pixels corroborated by Hansen loss or fire), since
+  map differencing inflates change.
+- **Projections.** A year-by-year engine (validated on the simulator, where it overstates
+  restoration benefits by about 40%) projects the scenarios to 2040 with paired uncertainty
+  bands. The bands straddle zero.
+- **Water.** Not estimated: no streamflow record was reachable. The catchment code in
+  `models/hydrology.py` runs once gauge data (Augas de Galicia / CEDEX) is supplied.
+
+Next steps that would change the conclusions: eucalyptus labels spread across Galicia (the
+Mapa Forestal de España or IFN4 plots), gauge data for the water question, and EFFIS perimeters
+before 2018 for more fire years.
