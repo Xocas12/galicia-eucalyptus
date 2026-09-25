@@ -385,28 +385,72 @@ def predict_period(period: str, model, chunk_rows: int = 160, cube=None):
     return cls, pmax, frac
 
 
+def backdate(L: dict, cls17, pmax17, cls24, strong: int = 90):
+    """Backdate the 2024 map to 2017 where nothing happened in between.
+
+    The 2017 imagery is weaker (one satellite, fewer clear winter scenes), and classifying it
+    independently scattered eucalyptus through the interior, then "lost" it by 2024. Standard map
+    updating keeps the 2024 class wherever the pixel was undisturbed (no Hansen loss 2017-2024,
+    no EFFIS burn 2018-2023), and uses the 2017 classifier where disturbance occurred or where it
+    is very confident (>= `strong` %) of a different class. Real change then needs evidence.
+    """
+    stable = stable_since(L, 2017)
+    keep24 = stable & ~((cls17 != cls24) & (pmax17 >= strong)) & (cls24 < 255)
+    out = np.where(keep24, cls24, cls17).astype("uint8")
+    return out, keep24
+
+
+def class_fractions(cls: np.ndarray, mask: np.ndarray) -> np.ndarray:
+    ny1, nx1 = GRID_1KM.shape
+    npx = mask.reshape(ny1, FINE_PER_CELL, nx1, FINE_PER_CELL).sum(axis=(1, 3))
+    frac = np.zeros((6, ny1, nx1), "float32")
+    for k in range(6):
+        frac[k] = (
+            ((cls == k) & mask).reshape(ny1, FINE_PER_CELL, nx1, FINE_PER_CELL).sum(axis=(1, 3))
+        )
+    with np.errstate(invalid="ignore", divide="ignore"):
+        return np.where(npx > 0, frac / npx, np.nan).astype("float32")
+
+
 @cached_npz("species")
 def species_maps(per_class: int = 30_000, seed: int = 0):
-    """Train on 2024, classify 2024 and the radiometrically normalised 2017 imagery (cached)."""
+    """Train on 2024; classify 2024 and the normalised 2017 imagery; backdate 2017 (cached)."""
+    L = all_layers()
+    mask = L["aoi"]["mask40"].astype(bool)
     out = {}
     model, metrics, (y, cvp) = train_period("2024", per_class, seed)
-    for period, cube in (("2024", build_period("2024")), ("2017", normalised_cube("2017"))):
-        cls, pmax, frac = predict_period(period, model, cube=cube)
-        out[f"class40_{period}"] = cls
-        out[f"pmax40_{period}"] = pmax
-        out[f"frac_{period}"] = frac
-        # One model, so the area correction uses the same cross-validated confusion.
+    cls24, pmax24, frac24 = predict_period("2024", model, cube=build_period("2024"))
+    cls17r, pmax17r, _ = predict_period("2017", model, cube=normalised_cube("2017"))
+    cls17, kept = backdate(L, cls17r, pmax17r, cls24)
+    pmax17 = np.where(kept, pmax24, pmax17r).astype("uint8")
+    out.update(
+        {
+            "class40_2024": cls24,
+            "pmax40_2024": pmax24,
+            "frac_2024": frac24,
+            "class40_2017": cls17,
+            "pmax40_2017": pmax17,
+            "frac_2017": class_fractions(cls17, mask),
+            "class40_2017_independent": cls17r,
+        }
+    )
+    # The 2024 soft fractions are used in both years for comparability.
+    out["frac_2024"] = class_fractions(cls24, mask)
+    for period in ("2017", "2024"):
         out[f"cv_true_{period}"] = y
         out[f"cv_pred_{period}"] = cvp
     m17 = dict(metrics)
-    m17["model"] = "2024 model applied to 2017 imagery quantile-mapped onto 2024"
+    m17["model"] = "2024 model on quantile-normalised 2017 imagery, backdated from 2024"
     m17["north_transfer"] = north_transfer(
-        normalised_cube("2017"), training_labels(all_layers(), "2017"), seed
+        normalised_cube("2017"), training_labels(L, "2017"), seed
     )
+    m17["share_backdated"] = float(kept[mask].mean())
     pd.Series(metrics).to_json(INTERIM / "species_metrics_2024.json")
     pd.Series(m17).to_json(INTERIM / "species_metrics_2017.json")
     log.info(
-        "species 2017 (normalised imagery): north transfer eucalyptus F1 %.2f",
+        "species 2017: %.0f%% of pixels backdated from 2024; independent-classifier north "
+        "transfer eucalyptus F1 %.2f",
+        100 * m17["share_backdated"],
         m17["north_transfer"]["euc_f1"],
     )
     return out

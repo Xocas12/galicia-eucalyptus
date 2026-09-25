@@ -448,8 +448,15 @@ OpenStreetMap), F1 por clase:
 
 {_md_table(pd.DataFrame({"name": CLASS_NAMES_GL, "2017": sm["2017"]["north_transfer"]["f1"], "2024": sm["2024"]["north_transfer"]["f1"]}), 3)}
 
-Pseudoetiquetas de eucalipto engadidas: {num(sm["2024"]["n_pseudo_eucalyptus"])} píxeles (2024)
-e {num(sm["2017"]["n_pseudo_eucalyptus"])} (2017, só píxeles estables entre os dous anos).
+Pseudoetiquetas de eucalipto engadidas: {num(sm["2024"]["n_pseudo_eucalyptus"])} píxeles
+(o mesmo modelo clasifica os dous anos).
+
+O mapa de 2017 retrodátase desde o de 2024: as imaxes de 2017 normalízanse radiometricamente
+contra as de 2024 e clasifícanse co mesmo modelo, pero nos píxeles sen perturbación entre os dous
+anos (sen perda arbórea de Hansen nin queimado de EFFIS) mantense a clase de 2024, agás se o
+clasificador está moi seguro (≥ 90 %) doutra clase. Así, o ruído do clasificador non crea cambios
+falsos, e un cambio real precisa de evidencia. Retrodatouse o
+{num(sm["2017"]["share_backdated"] * 100, 3)} % dos píxeles.
 
 Superficies. A columna «superficie estimada» corrixe o mapa invertindo a matriz de confusión
 da validación cruzada. Esa corrección só é fiable se as etiquetas son puras e representativas;
