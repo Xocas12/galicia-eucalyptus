@@ -385,7 +385,7 @@ def predict_period(period: str, model, chunk_rows: int = 160, cube=None):
     return cls, pmax, frac
 
 
-def backdate(L: dict, cls17, pmax17, cls24, strong: int = 90):
+def backdate(L: dict, cls17, pmax17, cls24, strong: int | None = None):
     """Backdate the 2024 map to 2017 where nothing happened in between.
 
     The 2017 imagery is weaker (one satellite, fewer clear winter scenes), and classifying it
@@ -393,9 +393,14 @@ def backdate(L: dict, cls17, pmax17, cls24, strong: int = 90):
     updating keeps the 2024 class wherever the pixel was undisturbed (no Hansen loss 2017-2024,
     no EFFIS burn 2018-2023), and uses the 2017 classifier where disturbance occurred or where it
     is very confident (>= `strong` %) of a different class. Real change then needs evidence.
+
+    The confidence override is off by default: at 90% it put 109k ha of eucalyptus on
+    undisturbed pixels where 2024 saw none (the weaker 2017 imagery is overconfident), which
+    was most of the spurious 2017-2024 difference.
     """
     stable = stable_since(L, 2017)
-    keep24 = stable & ~((cls17 != cls24) & (pmax17 >= strong)) & (cls24 < 255)
+    override = (cls17 != cls24) & (pmax17 >= strong) if strong is not None else False
+    keep24 = stable & ~override & (cls24 < 255)
     out = np.where(keep24, cls24, cls17).astype("uint8")
     return out, keep24
 
@@ -440,7 +445,9 @@ def species_maps(per_class: int = 30_000, seed: int = 0):
         out[f"cv_true_{period}"] = y
         out[f"cv_pred_{period}"] = cvp
     m17 = dict(metrics)
-    m17["model"] = "2024 model on quantile-normalised 2017 imagery, backdated from 2024"
+    m17["model"] = (
+        "2024 model on quantile-normalised 2017 imagery, backdated from 2024 on undisturbed pixels"
+    )
     m17["north_transfer"] = north_transfer(
         normalised_cube("2017"), training_labels(L, "2017"), seed
     )

@@ -62,6 +62,9 @@ GL.update(
         "source": "fonte",
         "use": "uso",
         "period": "período",
+        "map": "mapa",
+        "ci_low": "IC 95 % inferior",
+        "ci_high": "IC 95 % superior",
         "2017": "2017",
         "2024": "2024",
     }
@@ -230,6 +233,36 @@ def _sig(e) -> bool:
     return abs(e.estimate) > 1.96 * e.se
 
 
+def _sensitivity_txt(fire: dict) -> str:
+    ms = fire.get("map_sensitivity")
+    if ms is None or ms.empty:
+        return ""
+    parts = ", ".join(
+        f"{GL_MAP.get(r.map, r.map)}: {num(r.estimate * 10, 2)}" for r in ms.itertuples()
+    )
+    sig = [(r.ci_low > 0) or (r.ci_high < 0) for r in ms.itertuples()]
+    same_sign = len({np.sign(r.estimate) for r in ms.itertuples()}) == 1
+    if same_sign and all(sig):
+        return f" As tres versións do mapa dan a mesma conclusión ({parts})."
+    if same_sign:
+        return (
+            f" As versións do mapa coinciden no signo ({parts}), pero non todas son "
+            "distinguibles de cero: o resultado é sensible ao mapa."
+        )
+    return (
+        " **A estimación depende do mapa de eucalipto empregado** (puntos porcentuais por "
+        f"cada 10 puntos de eucalipto: {parts}), así que non se debe tomar como un resultado "
+        "firme."
+    )
+
+
+GL_MAP = {
+    "2017 backdated": "2017 retrodatado",
+    "2017 independent": "2017 independente",
+    "2024 (post-fire)": "2024 (posterior aos lumes)",
+}
+
+
 def _resumo(res: dict) -> str:
     fire, conv, proj = res["fire"], res["conversion"], res["projections"]
     areas, susc = res["areas"], res["susceptibility"]
@@ -276,7 +309,7 @@ def _resumo(res: dict) -> str:
         f"10 puntos de mato (IC 95 %: {num((shrub.estimate - 1.96 * shrub.se) * 10, 2)} a "
         f"{num((shrub.estimate + 1.96 * shrub.se) * 10, 2)})."
         if _sig(shrub)
-        else "Tampouco o mato mostra un efecto distinguible de cero."
+        else "O mato non mostra un efecto distinguible de cero."
     )
     rv_txt = (
         f" O valor de robustez é {num(rv['rv_estimate'], 2)}: un factor de confusión non medido "
@@ -291,14 +324,24 @@ def _resumo(res: dict) -> str:
         f"{num((reg.estimate - 1.96 * reg.se) * 10, 2)} a "
         f"{num((reg.estimate + 1.96 * reg.se) * 10, 2)}; "
         f"{num(fire['labelled_region_burned_cell_years'])} anos-cela queimados)"
-        + (", tampouco distinguible de cero." if not _sig(reg) else ".")
+        + (", non distinguible de cero." if not _sig(reg) else ".")
     )
     items.append(
         f"- **Incendios, 2018–2023.** Mantendo constantes o relevo, a localización, a presión "
         f"humana, a meteoroloxía e as demais cubertas, {occ_txt}. {shrub_txt}{rv_txt}{reg_txt}"
-        " O mapa de eucalipto segue sen unha validación independente fóra do norte, así que un "
-        "resultado nulo pode deberse a falta de potencia e non demostra que o eucalipto non "
-        "afecte aos incendios."
+        + _sensitivity_txt(fire)
+    )
+    nat_e = fire["cover_effects"]["f_native_broadleaf"]
+    diff = occ.estimate - nat_e.estimate
+    diff_se = float(np.hypot(occ.se, nat_e.se))
+    items.append(
+        "- **Eucalipto fronte a frondosas autóctonas.** O efecto anterior compárase coa "
+        "agricultura e outros usos, que son os que máis arden. Fronte ás frondosas autóctonas, "
+        f"que son as que menos arden, 10 puntos de eucalipto no canto de frondosas cambian a "
+        f"probabilidade anual de queima en {num(diff * 10, 2)} puntos porcentuais (IC 95 % "
+        f"aproximado: {num((diff - 1.96 * diff_se) * 10, 2)} a "
+        f"{num((diff + 1.96 * diff_se) * 10, 2)}; aproximado porque combina dúas estimacións "
+        "separadas). Este é o contraste que importa para a restauración."
     )
     sev_txt = "distinguible de cero" if _sig(sev) else "non distinguible de cero"
     items.append(
@@ -319,9 +362,15 @@ def _resumo(res: dict) -> str:
         f"media en {num(t['d_burned_ha_per_year'])} ha/ano se se fai nas celas prioritarias "
         f"(banda 5–95 %: {num(t['d_burned_p05'])} a {num(t['d_burned_p95'])}) e en "
         f"{num(r['d_burned_ha_per_year'])} ha/ano se se fai ao chou (banda "
-        f"{num(r['d_burned_p05'])} a {num(r['d_burned_p95'])}). Como os efectos das cubertas "
-        "sobre o lume non son distinguibles de cero, as proxeccións non permiten afirmar que "
-        "restaurar reduza os incendios; tampouco que os aumente."
+        f"{num(r['d_burned_p05'])} a {num(r['d_burned_p95'])})."
+        + (
+            " As dúas bandas inclúen o cero: as proxeccións non permiten afirmar que restaurar "
+            "reduza os incendios, nin que os aumente."
+            if (t["d_burned_p05"] < 0 < t["d_burned_p95"])
+            and (r["d_burned_p05"] < 0 < r["d_burned_p95"])
+            else " Ao menos unha banda exclúe o cero, pero as proxeccións herdan a sensibilidade "
+            "ao mapa descrita arriba."
+        )
     )
     return "\n".join(items)
 
@@ -453,9 +502,8 @@ Pseudoetiquetas de eucalipto engadidas: {num(sm["2024"]["n_pseudo_eucalyptus"])}
 
 O mapa de 2017 retrodátase desde o de 2024: as imaxes de 2017 normalízanse radiometricamente
 contra as de 2024 e clasifícanse co mesmo modelo, pero nos píxeles sen perturbación entre os dous
-anos (sen perda arbórea de Hansen nin queimado de EFFIS) mantense a clase de 2024, agás se o
-clasificador está moi seguro (≥ 90 %) doutra clase. Así, o ruído do clasificador non crea cambios
-falsos, e un cambio real precisa de evidencia. Retrodatouse o
+anos (sen perda arbórea de Hansen nin queimado de EFFIS) mantense a clase de 2024. Así, o
+ruído do clasificador non crea cambios falsos, e un cambio real precisa de evidencia. Retrodatouse o
 {num(sm["2017"]["share_backdated"] * 100, 3)} % dos píxeles.
 
 Superficies. A columna «superficie estimada» corrixe o mapa invertindo a matriz de confusión
@@ -505,6 +553,11 @@ Onde é maior o efecto do eucalipto:
 {_md_table(fire["gate_fwi"], values=("group",))}
 
 ![grupos](grupos.png)
+
+Sensibilidade ao mapa de eucalipto (efecto sobre a probabilidade anual de queima por unidade
+de fracción):
+
+{_md_table(fire["map_sensitivity"].assign(map=fire["map_sensitivity"]["map"].map(GL_MAP)))}
 
 Sensibilidade á confusión non observada:
 

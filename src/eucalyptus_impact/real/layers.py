@@ -360,7 +360,7 @@ def ghcn_station_years() -> pd.DataFrame:
 
 
 @cached_npz("weather")
-def weather_layers(years=range(2001, 2025)):
+def weather_layers(years=range(2001, 2025)):  # noqa: B008 (immutable range)
     """Cell-year fire-weather index from station anomalies, inverse-distance weighted.
 
     index = z(summer Tmax anomaly) - z(summer precipitation anomaly), each anomaly relative to

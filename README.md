@@ -124,23 +124,33 @@ What the real-data run established, and what it did not:
 - **Imagery.** Monthly NDVI/NDMI/NBR composites at 40 m. Each acquisition date is mosaicked
   across tiles after removing per-tile radiometric offsets estimated on tile overlaps (the
   archive's per-tile atmospheric correction left seams up to ~0.02).
-- **Species maps.** Spatial-block CV accuracy is about 0.80 against OSM labels. Holding out
-  whole 100 km squares, eucalyptus F1 falls to about 0: the labels are concentrated in the north
-  and the map does not transfer. Mapped eucalyptus area (about 145–195k ha) is below published
-  figures, so the map very likely underestimates eucalyptus.
-- **Fire (EFFIS 2018–2023, 29,565 cells × 6 years).** No effect of eucalyptus fraction on burn
-  probability or severity is distinguishable from zero; shrub cover does raise burn
-  probability. With the eucalyptus layer this weak, a null here is lack of power, not evidence
-  of no effect.
+- **Species maps.** A gradient-boosting classifier on harmonic phenology and gap-filled
+  monthly indices, trained on 2024 imagery. OSM labels are cleaned by winter behaviour
+  (eucalyptus stays green and wet in winter; deciduous natives drop), and eucalyptus
+  pseudo-labels are added across Galicia from evergreen, winter-moist pixels in areas with a
+  history of Hansen clear-cut harvests. Tested by training without the northern 100 km square
+  and predicting its OSM labels, eucalyptus F1 is 0.72 (it was about 0 before the cleaning and
+  pseudo-labels). The 2017 image is quantile-normalised to 2024 on stable pixels, and 2017 classes
+  are backdated from 2024 wherever no harvest or fire happened in between (an independent 2017
+  classifier transfers with F1 0.65 and is kept as a sensitivity check). Mapped eucalyptus:
+  about 440k ha in 2024 and 489k ha in 2017, with the difference on harvested or burnt pixels.
+  Still not validated against the official forest inventory.
+- **Fire (EFFIS 2018–2023, 29,565 cells × 6 years).** Relative to agriculture and other cover,
+  10 more points of eucalyptus lower annual burn probability by 0.27 pp (95% CI −0.46 to
+  −0.08; robustness value 0.018, so a weak confounder could explain it). Against native
+  broadleaf, eucalyptus raises it by 0.39 pp, but the interval touches zero. The three map
+  versions (2017 backdated, 2017 independent, 2024) agree on the sign, but not all are
+  significant: the result depends on the map. No severity effect is detectable.
 - **Native forest.** 2017→2024 native-to-eucalyptus conversion is reported three ways (all
-  pixels, confident pixels, and confident pixels corroborated by Hansen loss or fire), since
-  map differencing inflates change.
+  pixels 1,548 ha, confident pixels 563 ha, confident pixels corroborated by Hansen loss or fire
+  484 ha), since map differencing inflates change.
 - **Projections.** A year-by-year engine (validated on the simulator, where it overstates
   restoration benefits by about 40%) projects the scenarios to 2040 with paired uncertainty
-  bands. The bands straddle zero.
+  bands. Restoring 25% of eucalyptus in priority cells cuts mean burnt area by about 2,500
+  ha/yr (5–95% band 870–3,600); the projections inherit the map sensitivity above.
 - **Water.** Not estimated: no streamflow record was reachable. The catchment code in
   `models/hydrology.py` runs once gauge data (Augas de Galicia / CEDEX) is supplied.
 
-Next steps that would change the conclusions: eucalyptus labels spread across Galicia (the
-Mapa Forestal de España or IFN4 plots), gauge data for the water question, and EFFIS perimeters
+Next steps that would change the conclusions: an independent reference sample across Galicia
+(the Mapa Forestal de España or IFN4 plots), gauge data for the water question, and EFFIS perimeters
 before 2018 for more fire years.

@@ -78,6 +78,12 @@ def cell_frame(L: dict, maps: dict) -> pd.DataFrame:
     for j, c in enumerate(COVER):
         df[c] = frac17[j][keep]
         df[c + "_end"] = frac24[j][keep]
+    if "class40_2017_independent" in maps:
+        from .species import class_fractions
+
+        ind = class_fractions(maps["class40_2017_independent"], L["aoi"]["mask40"].astype(bool))
+        for j, c in enumerate(COVER):
+            df[c + "_ind"] = ind[j][keep]
     df["neigh_euc"] = focal_mean(np.nan_to_num(frac17[EUC]), 3, mask=keep)[keep]
     # Gross conversion 2017 -> 2024: share of confidently mapped non-eucalyptus 40 m pixels that
     # are confidently eucalyptus in 2024. Net change would count burned eucalyptus canopy
@@ -389,6 +395,34 @@ def projections(
     }
 
 
+def map_sensitivity(cells: pd.DataFrame, seed: int = 0) -> pd.DataFrame:
+    """Fire-occurrence effect of eucalyptus under different exposure maps.
+
+    The estimate moved between map versions during development, so it is reported for the
+    backdated 2017 map (the main exposure), the independently classified 2017 map, and the 2024
+    map (measured after the fires, so only a sensitivity check).
+    """
+    versions = {"2017 backdated": "", "2017 independent": "_ind", "2024 (post-fire)": "_end"}
+    rows = []
+    for name, suf in versions.items():
+        if suf and COVER[0] + suf not in cells:
+            continue
+        c2 = cells.copy()
+        for c in COVER:
+            c2[c] = cells[c + suf] if suf else cells[c]
+        est = fire_analysis(cell_year_panel(c2), seed=seed)["occurrence_dml"]
+        rows.append(
+            {
+                "map": name,
+                "estimate": est.estimate,
+                "se": est.se,
+                "ci_low": est.ci95[0],
+                "ci_high": est.ci95[1],
+            }
+        )
+    return pd.DataFrame(rows)
+
+
 def run_real(seed: int = 0) -> dict:
     L = all_layers()
     maps = species_maps()
@@ -401,6 +435,7 @@ def run_real(seed: int = 0) -> dict:
         p: json.loads((INTERIM / f"species_metrics_{p}.json").read_text()) for p in ("2017", "2024")
     }
     res["fire"] = fire_analysis(panel, seed=seed)
+    res["fire"]["map_sensitivity"] = map_sensitivity(cells, seed=seed)
     log.info("fire done")
     res["susceptibility"] = susceptibility(panel, cells, seed=seed)
     res["conversion"] = conversion_analysis(cells, maps, L, seed=seed)

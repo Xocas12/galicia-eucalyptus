@@ -15,12 +15,11 @@ The answers feed a **policy layer**: projections of fire and water outcomes unde
 plans (business as usual, an area cap or moratorium, targeted native restoration) and a
 data-driven map of where restoration buys the most risk reduction.
 
-> **Status: no real-data result exists yet.** The latest synthetic validation run is in
-> [`synthetic_validation/report.md`](synthetic_validation/report.md). Every number the pipeline currently produces comes
-> from a *synthetic* Galicia-like landscape whose causal effects are set by hand in
-> `configs/*.yaml` / `data/synthetic.py`. Its purpose is to prove that the estimators recover known
-> effects before they are pointed at real data. Do not cite any synthetic output as a finding
-> about Galicia.
+> **Status.** Synthetic validation: [`synthetic_validation/report.md`](synthetic_validation/report.md)
+> (hand-set effects, not findings about Galicia). Real-data results: the Galician brief
+> [`galicia_real/informe.md`](galicia_real/informe.md). The real species map has not been
+> checked against an independent inventory sample, and the fire estimate depends on which map
+> version is used.
 
 ---
 
@@ -178,6 +177,6 @@ has the ingestion adapters. The adapters are written but **have not been run fro
 | M1 | Synthetic simulator with known effects, full pipeline end to end, tests | done |
 | M1b | Robustness: group effects, OVB sensitivity, SIMEX, cluster-size SEs; adapter tests on fixtures | done |
 | M2 | Real-data ingestion → 1 km panel | done from object storage (Sentinel-2, WorldCover, Copernicus DEM, Hansen GFC, EFFIS severity, Overture/OSM, GHCN); MFE/IFN labels and river gauges unreachable |
-| M3 | Species maps 2017 and 2024, areas, 2017→2024 conversion | done with OSM labels; eucalyptus validated only in the northern square where its labels are; Landsat back-cast not done |
-| M4 | Causal estimates on real data with robustness | done for fire (no detectable eucalyptus effect; underpowered given the map); water not estimable without gauges |
+| M3 | Species maps 2017 and 2024, areas, 2017→2024 conversion | done: cleaned OSM labels plus harvest-history pseudo-labels, held-out-north eucalyptus F1 0.72; 2017 normalised and backdated from 2024 (≈489k ha 2017, 440k ha 2024); no independent inventory check; Landsat back-cast not done |
+| M4 | Causal estimates on real data with robustness | done for fire (eucalyptus burns less than agriculture/other, −0.27 pp per 10 points, sign stable across map versions but not always significant; no severity effect); water not estimable without gauges |
 | M5 | Year-by-year projections, restoration priority map, policy brief | done: dynamic engine, brief in Galician (`docs/galicia_real/informe.md`) |
