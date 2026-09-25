@@ -315,7 +315,8 @@ O que si se fixo é preparar e validar o deseño con datos reais agás os caudai
 - **Proba de potencia.** Simuláronse caudais nas concas reais co clima real e un efecto
   coñecido do eucalipto (curva de Fu con parámetro propio de cada conca, choque anual común e
   erro do 8 % por conca e ano), e estimouse o efecto co mesmo modelo de efectos fixos dobres,
-  200 veces por caso. O estimador non ten nesgo e o seu IC 95 % cobre o valor real, pero coas
+  200 veces por caso. O nesgo é pequeno fronte ao erro típico e a cobertura do IC 95 % está
+  preto do 95 % (sen nesgo apreciable cun historial máis longo), pero coas
   {c["n"]} concas o efecto mínimo detectable (potencia do 80 %) é de
   **{num(m79, 3)} mm/ano por 10 puntos** de eucalipto. Aquí suponse que un efecto plausible, de
   substituír frondosas por eucalipto, é de 10–20 mm/ano por 10 puntos (100–200 mm/ano nunha
