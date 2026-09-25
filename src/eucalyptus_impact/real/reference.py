@@ -411,7 +411,8 @@ def inventory_check() -> dict:
         # of eucalyptus at the same plots: both describe the same sample.
         forest = plots["plot_type"] != "só mato"
         res["plot_euc_share"] = float((plots["plot_type"][forest] == "eucalipto").mean())
-        res["map_euc_share_at_forest_plots"] = float((m[forest.to_numpy()] == 0).mean())
+        mf = m[forest.to_numpy()]
+        res["map_euc_share_at_forest_plots"] = float((mf[mf < 6] == 0).mean())
         out[name] = res
     return out
 

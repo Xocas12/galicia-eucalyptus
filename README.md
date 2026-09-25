@@ -134,18 +134,23 @@ What the real-data run established, and what it did not:
   are backdated from 2024 wherever no harvest or fire happened in between (an independent 2017
   classifier transfers with F1 0.65 and is kept as a sensitivity check). Mapped eucalyptus:
   about 440k ha in 2024 and 489k ha in 2017, with the difference on harvested or burnt pixels.
-- **Independent map check.** The official inventory downloads (MFE, IFN) are blocked here, but
-  the GBIF archive on AWS holds a dataset with the design of the national forest inventory: a
-  systematic 1 km grid of 25 m-radius plots across Galicia with species lists and no date
-  (about 6,900 plots). Against these plots the eucalyptus area is right in aggregate (28% of
-  forested plots mapped as eucalyptus; 27.5% of them list eucalyptus), but plot-by-plot
-  agreement is low: F1 0.45 overall and 0.44 outside the north, well below the OSM transfer
-  test. Part of the gap is timing: map-eucalyptus plots whose list has none were cut or burnt
-  after 2010 far more often (64% vs 37%), i.e. likely planted after the survey. Adding the
-  plots to training (block-split experiment) did not improve held-out agreement, so the plot
-  labels (any eucalyptus in a 25 m circle) cap what they can show. Opportunistic GBIF
-  sightings add a secondary check (few eucalyptus points; 38% at the pixel, 74% within one
-  pixel). `real/reference.py`.
+- **Independent map check.** The official downloads (MFE, IFN4) are blocked here, but the GBIF
+  archive on AWS holds the Ministry's **IFN3** plots (MAGRAMA, collection IFN3; Galicia surveyed
+  around 1997-1998): a systematic 1 km grid with the species present in each plot, but no
+  counts or dates (about 6,900 plots in Galicia). The eucalyptus area is right in aggregate
+  (31-34% of forested plots mapped as eucalyptus vs 27.5% listing it in 1998), but plot-level
+  agreement is low: F1 0.45 overall, 0.44 outside the north, well below the OSM transfer test.
+  A date-matched Landsat 2000 map agrees no better (F1 0.42), so most of the gap is the
+  reference (any eucalyptus in a 25 m plot) plus map error, not change since 1998. Adding the
+  plots to training (block-split experiment) did not help. Opportunistic GBIF sightings are a
+  secondary check. `real/reference.py`.
+- **Landsat back-cast (1990-2017).** Landsat 4-8 Collection 1 from Google's public archive,
+  seasonal NDVI/NDMI/NBR composites for four epochs, one classifier per epoch trained on pixels
+  unchanged since 2001 (`real/landsat.py`). It **fails validation**: eucalyptus F1 0.53-0.65,
+  no area trend (597, 551, 573, 572 kha), and pixels turning eucalyptus 2000-2010 show Hansen
+  loss no more often than unchanged pixels (1.8% vs 1.6%). It is gated out of the water study.
+  Doing it properly needs Landsat Collection 2 surface reflectance (Planetary Computer, or the
+  requester-pays `usgs-landsat` bucket with AWS credentials).
 - **Fire (EFFIS 2018–2023, 29,565 cells × 6 years).** Relative to agriculture and other cover,
   10 more points of eucalyptus lower annual burn probability by 0.27 pp (95% CI −0.46 to
   −0.08; robustness value 0.018, so a weak confounder could explain it). Against native
@@ -168,7 +173,8 @@ What the real-data run established, and what it did not:
   real catchments (simulated flows with a known effect) shows the estimator is unbiased with
   correct coverage, but eucalyptus changes by only ~2 points per catchment over 2017–2024, so
   the minimum detectable effect is ~140 mm/yr per 10 points, far above plausible effects
-  (10–20). A cover history six times longer (e.g. a Landsat back-cast) brings it to ~21, and
+  (10–20). The published gauge datasets for Spain (CAMELS-ES, EStreams, GRDC-Caravan) are on
+  Zenodo, which this environment's network policy blocks. A cover history six times longer (e.g. a working Landsat back-cast) brings it to ~21, and
   swapping map versions roughly doubles the estimate, so map error matters as much as noise.
 
 Next steps that would change the conclusions: a dated, pixel-level reference (the Mapa

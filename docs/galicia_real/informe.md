@@ -15,22 +15,22 @@
 > 0,69, sensibilidade
 > 0,75) e
 > 0,65 en 2017. Sen esta corrección era
-> practicamente cero. A comprobación independente con parcelas dunha malla de inventario
-> forestal en toda Galicia (sección 2) é máis severa: a superficie total cadra, pero parcela a
+> practicamente cero. A comprobación independente coas parcelas do IFN3 en toda Galicia
+> (sección 2) é máis severa: a superficie total cadra, pero parcela a
 > parcela o acordo é baixo.
 > Os efectos causais dependen de supostos que se explican na sección 7. O efecto sobre a auga
 > **non se puido estimar** con datos reais; a sección 6 avalía se sería medible con aforos.
 
 ## Resumo
 
-- **Superficie de eucalipto (mapa).** 440 mil ha en 2024 e 489 mil ha en 2017 (reconto de píxeles; 447 mil ha en 2024 sumando probabilidades). **Estas cifras non están validadas** co inventario oficial descargado do Ministerio (IFN, Mapa Forestal de España): compárense con el antes de citalas (sección 2). Contra 6 903 parcelas dunha malla de inventario forestal (GBIF), o mapa dá eucalipto no 28,1 % das parcelas arboradas e as parcelas teñen eucalipto no 27,5 %: o total cadra. Parcela a parcela o acordo é baixo (F1 0,44 fóra do norte), en parte porque as parcelas son anteriores a moitas plantacións.
+- **Superficie de eucalipto (mapa).** 440 mil ha en 2024 e 489 mil ha en 2017 (reconto de píxeles; 447 mil ha en 2024 sumando probabilidades). **Estas cifras non están validadas** co inventario oficial descargado do Ministerio (IFN, Mapa Forestal de España): compárense con el antes de citalas (sección 2). Contra 6 903 parcelas do IFN3 (arredor de 1998, publicadas en GBIF), o mapa dá eucalipto no 28,1 % das parcelas arboradas e as parcelas teñen eucalipto no 27,5 %: o total cadra. Parcela a parcela o acordo é baixo (F1 0,44 fóra do norte), en parte porque as parcelas son anteriores a moitas plantacións.
 - **Substitución de bosque autóctono.** Entre 2017 e 2024, 563,2 ha pasaron de frondosas autóctonas a eucalipto en píxeles clasificados con fiabilidade nos dous anos; 484 ha diso coinciden ademais cunha perda de cuberta arbórea (Hansen) ou cun incendio (EFFIS). Esta última é a cifra máis prudente; a diferenza entre mapas tende a sobreestimar o cambio.
 - **Incendios, 2018–2023.** Mantendo constantes o relevo, a localización, a presión humana, a meteoroloxía e as demais cubertas, un aumento de 10 puntos na fracción de eucalipto cambia a probabilidade anual de queima en -0,27 puntos porcentuais (IC 95 %: -0,46 a -0,076). O mato non mostra un efecto distinguible de cero. O valor de robustez é 0,018: un factor de confusión non medido con ese R² parcial co tratamento e co resultado anularía a estimación. No cadro do norte, onde están as etiquetas de OpenStreetMap, o efecto é -0,34 puntos porcentuais por cada 10 puntos de eucalipto (IC 95 %: -0,54 a -0,14; 24 anos-cela queimados). As versións do mapa coinciden no signo (2017 retrodatado: -0,27, 2017 independente: -0,15, 2024 (posterior aos lumes): -0,42), pero non todas son distinguibles de cero: o resultado é sensible ao mapa.
 - **Eucalipto fronte a frondosas autóctonas.** O efecto anterior compárase coa agricultura e outros usos, que son os que máis arden. Fronte ás frondosas autóctonas, que son as que menos arden, 10 puntos de eucalipto no canto de frondosas cambian a probabilidade anual de queima en 0,39 puntos porcentuais (IC 95 % aproximado: -0,018 a 0,79; aproximado porque combina dúas estimacións separadas). Este é o contraste que importa para a restauración.
 - **Severidade.** Entre as celas queimadas, o efecto do eucalipto sobre a clase de severidade EFFIS é -0,24 por unidade de fracción (EE 0,28; non distinguible de cero; n = 2 146).
 - **Do lume á plantación.** Efecto da fracción queimada en 2018–2021 sobre a conversión bruta a eucalipto en 2024: 0,0063 (EE 0,0088), non distinguible de cero.
 - **Proxeccións a 2040.** Restaurar o 25 % do eucalipto cambia a superficie queimada media en -2 499 ha/ano se se fai nas celas prioritarias (banda 5–95 %: -3 577 a -866,9) e en -714,8 ha/ano se se fai ao chou (banda -1 077 a -244,2). Ao menos unha banda exclúe o cero, pero as proxeccións herdan a sensibilidade ao mapa descrita arriba.
-- **Auga.** Sen datos de caudal non hai estimación. Unha proba de potencia nas 79 concas reais mostra que, cos mapas de 2017 e 2024, os aforos só detectarían un efecto de 140 mm/ano por 10 puntos de eucalipto ou maior; fai falta un historial de cuberta máis longo (sección 6).
+- **Auga.** Sen datos de caudal non hai estimación. Unha proba de potencia nas 79 concas reais mostra que, cos mapas de 2017 e 2024, os aforos só detectarían un efecto de 139 mm/ano por 10 puntos de eucalipto ou maior; fai falta un historial de cuberta máis longo (sección 6).
 
 ## 1. Datos empregados
 
@@ -111,12 +111,12 @@ erro do mapa.
 ### Comprobación con parcelas de inventario forestal
 
 O Mapa Forestal de España e o IFN4 non se podían descargar desde este contorno, pero o arquivo
-de GBIF contén un conxunto co deseño das parcelas do Inventario Forestal Nacional: unha malla
-sistemática de 1 km en toda Galicia, parcelas de 25 m de radio e a lista de especies de cada
-unha, sen data (se é o IFN4, o traballo de campo en Galicia foi arredor de 2009). O título do
-conxunto non se puido ler (a API de GBIF está bloqueada), así que se identifica polo deseño.
-Quedan 6 903 parcelas. Por ser unha mostra sistemática, dá unha precisión
-de deseño, non só a sensibilidade.
+de GBIF contén as parcelas do **Terceiro Inventario Forestal Nacional (IFN3)**, publicadas polo
+Ministerio (código de institución MAGRAMA, colección IFN3, licenza CC BY-NC 4.0): unha malla
+sistemática de 1 km coa lista de especies de cada parcela, sen número de pés nin data. O
+traballo de campo do IFN3 en Galicia foi arredor de 1997–1998, así que as parcelas son dúas
+décadas anteriores aos mapas de Sentinel-2. Quedan 6 903 parcelas. Por ser unha
+mostra sistemática, dá unha precisión de deseño, non só a sensibilidade.
 
 Unha parcela conta como «eucalipto» se a lista inclúe algún eucalipto; non se sabe se domina.
 Precisión: das parcelas que o mapa chama eucalipto, fracción que ten eucalipto. Sensibilidade:
@@ -166,15 +166,36 @@ Que se conclúe:
 - **Parcela a parcela o acordo é baixo**: F1 0,45 en toda Galicia e
   0,44 fóra do norte, lonxe do
   0,72 da proba de transferencia con OpenStreetMap. Esa proba era optimista.
-- **Parte do desacordo é tempo, non erro.** Das parcelas sen eucalipto que o mapa chama
-  eucalipto, o 64,2 % tivo corta ou lume despois
-  de 2010, fronte ao 37,3 % do resto: son
-  probablemente plantacións posteriores ao inventario.
-- **Adestrar coas parcelas non mellora o mapa.** Nun experimento, as parcelas da metade dos bloques de 10 km (1 628 sen perturbación desde 2010) engadíronse ao adestramento e avaliouse nas 3 133 da outra metade: F1 0,43 co mapa actual e 0,41–0,43 coas parcelas; adestrando só coas parcelas, 0,33. Unha parcela con algún eucalipto non é unha boa etiqueta para un píxel de 40 m, así que este acordo é en parte un teito da referencia, non só do mapa.
+- **O tempo explica só unha parte.** Das parcelas sen eucalipto que o mapa chama eucalipto, o
+  74,9 % tivo corta ou lume desde 2001 (o primeiro
+  ano de Hansen), fronte ao 45,9 % do resto: algunhas
+  son plantacións posteriores ao inventario. Pero un mapa da mesma época ca o inventario (Landsat 2000, sección seguinte) non concorda mellor coas parcelas (F1 0,42, fronte a 0,45 do mapa de 2024): a maior parte do desacordo vén da propia referencia (calquera eucalipto nun círculo de 25 m) e do erro do mapa, non do cambio desde 1998.
+- **Adestrar coas parcelas non mellora o mapa.** Nun experimento, as parcelas da metade dos bloques de 10 km (1 341 sen perturbación desde 2001) engadíronse ao adestramento e avaliouse nas 3 133 da outra metade: F1 0,43 co mapa actual e 0,41–0,43 coas parcelas; adestrando só coas parcelas, 0,28. Unha parcela con algún eucalipto non é unha boa etiqueta para un píxel de 40 m, así que este acordo é en parte un teito da referencia, non só do mapa.
 
 Consecuencia: as cifras de superficie son plausibles, pero a localización do eucalipto píxel a
 píxel é incerta. Os efectos estimados sobre os incendios están atenuados por este erro
 (sección 7).
+
+### Mapa histórico con Landsat, 1990–2017
+
+Para ter un historial de cuberta máis longo (sección 6) clasificáronse compostos estacionais
+Landsat 4–8 (arquivo público de Google Cloud; inverno e verán, NDVI, NDMI e NBR) en catro
+épocas de tres anos. Cada época ten o seu clasificador, adestrado en píxeles sen cambios
+desde 2001 (mesma clase nos dous mapas de Sentinel-2, sen perda de Hansen nin lume).
+
+| época | exactitude (validación cruzada) | F1 eucalipto (validación cruzada) | eucalipto (mil ha) | F1 fronte ao IFN3 |
+|---|---|---|---|---|
+| 1990 | 0,501 | 0,525 | 597 | 0,401 |
+| 2000 | 0,577 | 0,567 | 551 | 0,419 |
+| 2010 | 0,607 | 0,589 | 573 | 0,387 |
+| 2017 | 0,647 | 0,653 | 572 | 0,418 |
+
+Comprobación de cambio: dos píxeles que pasan a eucalipto entre 2000 e 2010, o
+1,8 % tivo unha corta rexistrada por Hansen en 2001–2010,
+fronte ao 1,6 % dos píxeles sen cambio. Unha plantación
+nova vén case sempre dunha corta, así que a proporción debería ser moito maior.
+
+**O mapa histórico non supera a validación, e non se usa.** Coas imaxes Landsat de nivel 1 (reflectancia no alto da atmosfera, sen corrección atmosférica) e poucas escenas por estación, o clasificador non separa o eucalipto o bastante: a superficie non mostra tendencia e o «cambio» entre épocas é ruído. Para facelo ben cómpren as imaxes Landsat de reflectancia de superficie (Colección 2), que non eran accesibles desde este contorno.
 
 ### Comprobación con observacións de GBIF
 
@@ -357,7 +378,7 @@ O que si se fixo é preparar e validar o deseño con datos reais agás os caudai
   200 veces por caso. O nesgo é pequeno fronte ao erro típico e a cobertura do IC 95 % está
   preto do 95 % (sen nesgo apreciable cun historial máis longo), pero coas
   79 concas o efecto mínimo detectable (potencia do 80 %) é de
-  **140 mm/ano por 10 puntos** de eucalipto. Aquí suponse que un efecto plausible, de
+  **139 mm/ano por 10 puntos** de eucalipto. Aquí suponse que un efecto plausible, de
   substituír frondosas por eucalipto, é de 10–20 mm/ano por 10 puntos (100–200 mm/ano nunha
   conca enteira).
   «Cambio de cuberta × 3» ou «× 6» simula un historial máis longo (por exemplo, mapas desde os
@@ -367,48 +388,48 @@ Efecto mínimo detectable:
 
 | cambio de cuberta (× o real) | concas | efecto mínimo detectable (mm/ano por 10 puntos) |
 |---|---|---|
-| 1 | 20 | 374 |
-| 1 | 40 | 245 |
-| 1 | 79 | 140 |
+| 1 | 20 | 373 |
+| 1 | 40 | 244 |
+| 1 | 79 | 139 |
 | 3 | 20 | 112 |
-| 3 | 40 | 67,2 |
-| 3 | 79 | 46,1 |
-| 6 | 20 | 48,4 |
-| 6 | 40 | 33,5 |
-| 6 | 79 | 20,6 |
+| 3 | 40 | 67,1 |
+| 3 | 79 | 46 |
+| 6 | 20 | 48,3 |
+| 6 | 40 | 33,4 |
+| 6 | 79 | 20,5 |
 
 Resultados co número máximo de concas:
 
 | cambio de cuberta (× o real) | efecto real (mm/ano por 10 puntos) | estimación media | nesgo | cobertura IC 95 % | potencia |
 |---|---|---|---|---|---|
-| 1 | 0 | -7,2 | -7,2 | 0,925 | 0,075 |
-| 1 | -10 | -19 | -8,96 | 0,905 | 0,095 |
-| 1 | -20 | -31,4 | -11,4 | 0,905 | 0,13 |
-| 1 | -40 | -58,2 | -18,2 | 0,915 | 0,22 |
-| 3 | 0 | -2,34 | -2,34 | 0,93 | 0,07 |
-| 3 | -10 | -11 | -1,04 | 0,945 | 0,145 |
-| 3 | -20 | -20,7 | -0,74 | 0,905 | 0,31 |
-| 3 | -40 | -45,2 | -5,19 | 0,93 | 0,825 |
-| 6 | 0 | -0,911 | -0,911 | 0,91 | 0,09 |
-| 6 | -10 | -11,2 | -1,22 | 0,935 | 0,37 |
-| 6 | -20 | -19,6 | 0,353 | 0,95 | 0,795 |
-| 6 | -40 | -40,9 | -0,916 | 0,93 | 1 |
+| 1 | 0 | -6,92 | -6,92 | 0,925 | 0,075 |
+| 1 | -10 | -18,7 | -8,73 | 0,905 | 0,095 |
+| 1 | -20 | -31,1 | -11,1 | 0,905 | 0,125 |
+| 1 | -40 | -57,9 | -17,9 | 0,915 | 0,22 |
+| 3 | 0 | -2,22 | -2,22 | 0,93 | 0,07 |
+| 3 | -10 | -10,9 | -0,941 | 0,945 | 0,145 |
+| 3 | -20 | -20,6 | -0,616 | 0,905 | 0,31 |
+| 3 | -40 | -45,1 | -5,1 | 0,93 | 0,825 |
+| 6 | 0 | -0,866 | -0,866 | 0,91 | 0,09 |
+| 6 | -10 | -11,2 | -1,16 | 0,93 | 0,37 |
+| 6 | -20 | -19,6 | 0,4 | 0,95 | 0,8 |
+| 6 | -40 | -40,9 | -0,861 | 0,93 | 1 |
 
 Con erro de mapa realista (caudais simulados co mapa de 2017 independente, estimación co
 retrodatado):
 
 | cambio de cuberta (× o real) | efecto real (mm/ano por 10 puntos) | estimación media | nesgo | cobertura IC 95 % | potencia |
 |---|---|---|---|---|---|
-| 1 | 0 | -14,7 | -14,7 | 0,915 | 0,085 |
-| 1 | -20 | -80,4 | -60,4 | 0,78 | 0,315 |
-| 6 | 0 | -1,41 | -1,41 | 0,91 | 0,09 |
+| 1 | 0 | -14,3 | -14,3 | 0,915 | 0,085 |
+| 1 | -20 | -80,2 | -60,2 | 0,775 | 0,32 |
+| 6 | 0 | -1,36 | -1,36 | 0,91 | 0,09 |
 | 6 | -20 | -43 | -23 | 0,44 | 0,99 |
 
 O erro de mapa pesa tanto coma o ruído: coa mesma conca e o mesmo caudal, cambiar de versión
 do mapa multiplica a estimación por 2,2 (e a cobertura do IC cae). Por iso calquera
 estimación con aforos debería repetirse coas dúas versións do mapa, como se fai cos incendios.
 
-Conclusión: **cos mapas dispoñibles (2017 e 2024), nin sequera cos aforos se podería medir o efecto do eucalipto sobre o caudal anual**. Fai falta un historial de cuberta máis longo (Landsat desde os anos noventa) ou un deseño de concas pareadas.
+Conclusión: **cos mapas dispoñibles (2017 e 2024), nin sequera cos aforos se podería medir o efecto do eucalipto sobre o caudal anual**. Fai falta un historial de cuberta máis longo (Landsat desde os anos noventa) ou un deseño de concas pareadas. Intentouse ese historial con Landsat (sección 2), pero o mapa histórico non superou a validación.
 
 ## 7. Limitacións
 
@@ -438,6 +459,7 @@ Conclusión: **cos mapas dispoñibles (2017 e 2024), nin sequera cos aforos se p
 | EFFIS | Sistema Europeo de Información sobre Incendios Forestais |
 | FWI | índice meteorolóxico de perigo de incendio |
 | GBIF | Global Biodiversity Information Facility (rexistros de biodiversidade) |
+| IFN3, IFN4 | Terceiro e Cuarto Inventario Forestal Nacional |
 | GHCN | rede mundial de estacións meteorolóxicas da NOAA |
 | IC | intervalo de confianza |
 | MCO | mínimos cadrados ordinarios (estimación inxenua) |
