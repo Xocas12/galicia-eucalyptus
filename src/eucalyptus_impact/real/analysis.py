@@ -454,6 +454,7 @@ def run_real(seed: int = 0) -> dict:
     }
     res["fire"] = fire_analysis(panel, seed=seed)
     res["fire"]["map_sensitivity"] = map_sensitivity(cells, seed=seed)
+    res["fire"]["plot_check"] = plot_fire_check(cells, L, seed=seed)
     log.info("fire done")
     res["susceptibility"] = susceptibility(panel, cells, seed=seed)
     res["conversion"] = conversion_analysis(cells, maps, L, seed=seed)
@@ -461,6 +462,10 @@ def run_real(seed: int = 0) -> dict:
     res["projections"] = projections(cells, res["fire"], res["susceptibility"], seed=seed)
     log.info("projections done")
     res["reference"] = _cached_json("reference", reference_check)
+    if (INTERIM / "s2_2024_re.done").exists():
+        from .species import red_edge_pilot
+
+        res["red_edge_pilot"] = _cached_json("red_edge_pilot", red_edge_pilot)
     res["inventory"] = _cached_json("inventory_check", inventory_check)
     if (INTERIM / "landsat_maps_v2.npz").exists():
         res["landsat_inventory"] = _cached_json("landsat_inventory", landsat_inventory_check)
@@ -479,3 +484,73 @@ def run_real(seed: int = 0) -> dict:
 
 
 __all__ = ["CLASS_NAMES", "cell_frame", "cell_year_panel", "run_real"]
+
+
+def plot_fire_check(cells: pd.DataFrame, L: dict, n_folds: int = 5, seed: int = 0) -> dict:
+    """Fire effect of eucalyptus measured on the ground instead of on the map.
+
+    Unit: IFN3 inventory plot (surveyed around 1998, two decades before the outcome). Exposure:
+    eucalyptus recorded in the plot. Outcome: share of 2018-2023 years in which EFFIS mapped the
+    plot's 40 m pixel as burnt, i.e. an annual burn probability. Controls: the static 1 km
+    covariates of the cell the plot falls in, the cell's mean fire weather, and whether pine or
+    native broadleaves were recorded in the plot. Map error plays no part in the exposure, so
+    this checks the direction of the map-based estimate; the exposure is older, so the effect
+    also includes plots that changed since the survey (which dilutes it towards zero).
+    """
+    from .reference import gbif_records, inventory_plots
+
+    plots = inventory_plots(gbif_records())
+    e = L["effis"]
+    r, c = plots["row"].to_numpy(), plots["col"].to_numpy()
+    plots["burn_rate"] = sum(e[f"burned40_{y}"][r, c].astype(float) for y in FIRE_YEARS) / len(
+        FIRE_YEARS
+    )
+    g = plots["genera"]
+    plots["euc"] = g.map(lambda s: "Eucalyptus" in s).astype(float)
+    plots["pine"] = g.map(lambda s: "Pinus" in s).astype(float)
+    natives = {"Quercus", "Castanea", "Betula", "Alnus", "Fagus"}
+    plots["native"] = g.map(lambda s: bool(s & natives)).astype(float)
+    plots["crow"], plots["ccol"] = r // 25, c // 25
+    cells = cells.assign(fwi_mean=cells[[f"fwi_{y}" for y in FIRE_YEARS]].mean(axis=1))
+    d = plots.merge(
+        cells[["row", "col", "block", *STATIC, "fwi_mean"]],
+        left_on=["crow", "ccol"],
+        right_on=["row", "col"],
+    )
+    X = d[[*STATIC, "fwi_mean", "pine", "native"]].to_numpy()
+    y = d["burn_rate"].to_numpy()
+    out = {
+        "n_plots": len(d),
+        "n_euc_plots": int(d["euc"].sum()),
+        "plots_burnt": int((d["burn_rate"] > 0).sum()),
+        "burn_rate_euc": float(d.loc[d["euc"] == 1, "burn_rate"].mean()),
+        "burn_rate_other": float(d.loc[d["euc"] == 0, "burn_rate"].mean()),
+    }
+    out["naive"] = ols(y, d["euc"].to_numpy(), d["block"].to_numpy(), name="eucalyptus plot")
+    out["dml"] = dml_plr(
+        y, d["euc"].to_numpy(), X, d["block"].to_numpy(), n_folds, seed, name="eucalyptus plot"
+    )
+    # Contrasts within forest plots: eucalyptus-only vs pine-only and vs native-only plots.
+    for other, col in (("pine", "pine"), ("native", "native")):
+        sub = d[
+            ((d["euc"] == 1) & (d["pine"] == 0) & (d["native"] == 0))
+            | ((d["euc"] == 0) & (d[col] == 1))
+        ]
+        Xs = sub[[*STATIC, "fwi_mean"]].to_numpy()
+        out[f"vs_{other}"] = dml_plr(
+            sub["burn_rate"].to_numpy(),
+            sub["euc"].to_numpy(),
+            Xs,
+            sub["block"].to_numpy(),
+            n_folds,
+            seed,
+            name=f"eucalyptus-only plot vs {other} plot",
+        )
+        out[f"vs_{other}_n"] = len(sub)
+    log.info(
+        "plot fire check: %d plots, DML %.4f (SE %.4f)",
+        len(d),
+        out["dml"].estimate,
+        out["dml"].se,
+    )
+    return out

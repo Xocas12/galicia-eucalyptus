@@ -190,6 +190,48 @@ def _experiment_txt(ex: dict | None) -> str:
     )
 
 
+def _plot_fire_txt(pc: dict | None) -> str:
+    if not pc:
+        return ""
+
+    def pp(e):
+        return (
+            f"{num(e.estimate * 100, 2)} puntos porcentuais (IC 95 %: "
+            f"{num((e.estimate - 1.96 * e.se) * 100, 2)} a {num((e.estimate + 1.96 * e.se) * 100, 2)})"
+        )
+
+    sig = lambda e: abs(e.estimate) > 1.96 * e.se  # noqa: E731
+    return f"""**Comprobación sobre o terreo, sen mapa.** As parcelas do IFN3 (arredor de 1998) din
+onde había eucalipto antes dos lumes de 2018–2023, sen erro de clasificación. Resultado:
+probabilidade anual de que ardese o píxel da parcela, segundo EFFIS, cos mesmos controis a
+1 km e a presenza de piñeiro ou frondosas na parcela ({num(pc["n_plots"])} parcelas,
+{num(pc["n_euc_plots"])} con eucalipto; só {num(pc["plots_burnt"])} arderon).
+
+- Taxas brutas: {num(pc["burn_rate_euc"] * 100, 2)} % ao ano nas parcelas con eucalipto e
+  {num(pc["burn_rate_other"] * 100, 2)} % nas demais.
+- Efecto con controis (DML): {pp(pc["dml"])}{"" if sig(pc["dml"]) else ", non distinguible de cero"}.
+- Parcelas só de eucalipto fronte a parcelas con piñeiro: {pp(pc["vs_pine"])}; fronte a
+  parcelas con frondosas: {pp(pc["vs_native"])}.
+
+As escalas non son comparables coas da táboa anterior (un punto fronte a unha cela de 1 km),
+así que só conta o signo: sobre o terreo tampouco hai sinal de que o eucalipto arda máis. Con
+tan poucas parcelas queimadas a comprobación ten pouca potencia, e non resolve o contraste co
+bosque autóctono."""
+
+
+def _redge_txt(pilot: dict | None) -> str:
+    if not pilot:
+        return ""
+    b, r = pilot["baseline"], pilot["with_red_edge"]
+    return (
+        "Probáronse tamén as bandas do bordo vermello de Sentinel-2 (B05, B07, B8A), que "
+        "axudan a distinguir especies. A mellora é pequena e dentro do ruído (F1 do eucalipto "
+        f"na proba do norte {num(b['north_transfer']['euc_f1'], 3)} → "
+        f"{num(r['north_transfer']['euc_f1'], 3)}; fronte ao IFN3 "
+        f"{num(b['ifn3']['f1'], 3)} → {num(r['ifn3']['f1'], 3)}), así que o mapa non se cambiou."
+    )
+
+
 def _timing_txt(li: dict | None) -> str:
     if not li:
         return ""
@@ -896,6 +938,8 @@ OpenStreetMap), F1 por clase:
 
 {_md_table(pd.DataFrame({"name": CLASS_NAMES_GL, "2017": sm["2017"]["north_transfer"]["f1"], "2024": sm["2024"]["north_transfer"]["f1"]}), 3)}
 
+{_redge_txt(res.get("red_edge_pilot"))}
+
 Pseudoetiquetas de eucalipto engadidas: {num(sm["2024"]["n_pseudo_eucalyptus"])} píxeles
 (o mesmo modelo clasifica os dous anos).
 
@@ -959,6 +1003,8 @@ Sensibilidade ao mapa de eucalipto (efecto sobre a probabilidade anual de queima
 de fracción):
 
 {_md_table(fire["map_sensitivity"].assign(map=fire["map_sensitivity"]["map"].map(GL_MAP)))}
+
+{_plot_fire_txt(fire.get("plot_check"))}
 
 Sensibilidade á confusión non observada:
 

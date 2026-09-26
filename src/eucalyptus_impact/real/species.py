@@ -533,3 +533,52 @@ def transition_table(maps: dict, conf: int = 70) -> pd.DataFrame:
                 }
             )
     return pd.DataFrame(rows)
+
+
+def red_edge_pilot(seed: int = 0) -> dict:
+    """Does adding the red-edge product (NDRE, red-edge slope, SWIR ratio) improve the 2024 map?
+
+    Same labels and classifier with and without the extra features, scored on the north
+    transfer test and on the IFN3 inventory plots. Used to decide whether to rebuild the maps.
+    """
+    from .reference import gbif_records, inventory_plots
+
+    idx, re = build_period("2024"), build_period("2024", product="re")
+
+    def feats(rows, cols, use_re):
+        X = _pixels_features(idx, rows, cols)
+        return np.column_stack([X, _pixels_features(re, rows, cols)]) if use_re else X
+
+    L = all_layers()
+    lab = training_labels(L, "2024")
+    r, c, y, _ = build_training("2024", 25_000, seed, exclude_square=NORTH_SQUARE)
+    tr_, tc_ = np.nonzero(lab < 255)
+    inn = _square(tr_, tc_) == NORTH_SQUARE
+    tr_, tc_ = tr_[inn], tc_[inn]
+    k = np.random.default_rng(seed).choice(len(tr_), min(60_000, len(tr_)), replace=False)
+    tr_, tc_ = tr_[k], tc_[k]
+    ty = lab[tr_, tc_].astype(int)
+    plots = inventory_plots(gbif_records())
+    plots = plots[L["aoi"]["mask40"][plots["row"], plots["col"]] > 0]
+    pe = (plots["plot_type"] == "eucalipto").to_numpy()
+    rows, cols, yy, _ = build_training("2024", 30_000, seed)
+    out = {}
+    for use_re in (False, True):
+        m = make_classifier(seed).fit(feats(r, c, use_re), y)
+        p = m.predict(feats(tr_, tc_, use_re))
+        m2 = make_classifier(seed).fit(feats(rows, cols, use_re), yy)
+        pp = m2.predict(feats(plots["row"].to_numpy(), plots["col"].to_numpy(), use_re))
+        tp = int(((pp == 0) & pe).sum())
+        prec, rec = tp / max(int((pp == 0).sum()), 1), tp / max(int(pe.sum()), 1)
+        out["with_red_edge" if use_re else "baseline"] = {
+            "north_transfer": {
+                "euc_f1": float(f1_score(ty == 0, p == 0)),
+                "accuracy": float(accuracy_score(ty, p)),
+            },
+            "ifn3": {
+                "recall": rec,
+                "precision": prec,
+                "f1": 2 * prec * rec / max(prec + rec, 1e-9),
+            },
+        }
+    return out
