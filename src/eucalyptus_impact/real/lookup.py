@@ -234,6 +234,7 @@ def format_lookup(r: dict, lang: str = "en") -> str:
     t = (lambda s: GL.get(s, s)) if lang == "gl" else (lambda s: s)
     pct = lambda v: f"{100 * v:.1f}%".replace(".", "," if lang == "gl" else ".")  # noqa: E731
     pp = lambda v: f"{100 * v:+.2f} pp".replace(".", "," if lang == "gl" else ".")  # noqa: E731
+    dec = lambda v, n=1: f"{v:.{n}f}".replace(".", "," if lang == "gl" else ".")  # noqa: E731
     L = (
         {
             "head": "Punto",
@@ -250,7 +251,8 @@ def format_lookup(r: dict, lang: str = "en") -> str:
             "cov": "cuberta 2024",
             "cov17": "cuberta 2017",
             "sea": "distancia ao mar",
-            "bshare": "fracción queimada 2018-2023",
+            "bshare": "fracción queimada 2018-2023 (suma dos anos)",
+            "noeuc": "sen eucalipto na cela",
             "risk": "Risco de incendio",
             "prob": "probabilidade anual de queima (tempo medio)",
             "mean": "media de Galicia",
@@ -285,7 +287,8 @@ def format_lookup(r: dict, lang: str = "en") -> str:
             "cov": "cover 2024",
             "cov17": "cover 2017",
             "sea": "distance to sea",
-            "bshare": "burnt share 2018-2023",
+            "bshare": "burnt share 2018-2023 (sum over years)",
+            "noeuc": "no eucalyptus in the cell",
             "risk": "Fire risk",
             "prob": "annual burn probability (average weather)",
             "mean": "Galicia mean",
@@ -325,18 +328,25 @@ def format_lookup(r: dict, lang: str = "en") -> str:
             f"\n{L['cell']}",
             f"  {L['cov']}: {cov(c['cover_2024'])}",
             f"  {L['cov17']}: {cov(c['cover_2017'])}",
-            f"  {L['sea']}: {c['distance_to_sea_km']:.1f} km",
+            f"  {L['sea']}: {dec(c['distance_to_sea_km'])} km",
             f"  {L['bshare']}: {pct(c['burnt_share_2018_2023'])}",
             f"\n{L['risk']}",
             f"  {L['prob']}: {pct(k['annual_fire_probability'])} ({L['mean']} {pct(k['galicia_mean'])})",
             f"  {L['pctl']}: {100 * k['percentile']:.0f} -> {L['class']}: {t(k['class'])}",
-            f"  {L['prio']}: {100 * k['restoration_priority_percentile']:.0f}"
-            f" ({L['sel']}: {L['yes'] if k['in_targeted_restoration_set'] else L['no']})",
         ]
+        if c["cover_2024"]["eucalyptus"] < 0.005:
+            lines.append(f"  {L['noeuc']}")
+        else:
+            lines.append(
+                f"  {L['prio']}: {100 * k['restoration_priority_percentile']:.0f}"
+                f" ({L['sel']}: {L['yes'] if k['in_targeted_restoration_set'] else L['no']})"
+            )
         for key, lab in (
             ("eucalyptus_contribution_vs_agriculture", "cag"),
             ("eucalyptus_contribution_vs_native", "cnat"),
         ):
+            if c["cover_2024"]["eucalyptus"] < 0.005:
+                break
             e = k[key]
             lines.append(
                 f"  {L[lab]}: {pp(e['estimate'])} [{pp(e['ci'][0])}, {pp(e['ci'][1])}]"
@@ -349,7 +359,7 @@ def format_lookup(r: dict, lang: str = "en") -> str:
         u = r["upstream"]
         cov = ", ".join(f"{t(n)} {pct(v)}" for n, v in u["cover_2024"].items() if v >= 0.005)
         lines += [
-            f"\n{L['up']}: {L['area']} {u['area_km2']:.1f} km² {L['trunc'] if u['truncated'] else ''}",
+            f"\n{L['up']}: {L['area']} {dec(u['area_km2'])} km² {L['trunc'] if u['truncated'] else ''}",
             f"  {L['cov']}: {cov}",
         ]
     lines += ["", L["caveat"]]

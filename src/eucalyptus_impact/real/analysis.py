@@ -228,6 +228,16 @@ SUSC_FEATURES = [*STATIC, *COVER[:5], "fwi", "neigh_euc"]
 
 
 def susceptibility(panel: pd.DataFrame, cells: pd.DataFrame, n_folds=5, seed=0) -> dict:
+    """Annual burn probability per cell from cover, terrain, people and weather.
+
+    Cross-fitted by spatial block: each cell's baseline probability (current 2024 cover,
+    average weather) comes from the fold model that did not see its block, and the scores are
+    mapped to probabilities with an isotonic calibration fitted on the out-of-fold panel
+    predictions. An earlier version scaled in-sample predictions up to the observed mean,
+    which inflated the tail (top 50 cells: 0.70 predicted vs 0.17 observed; some above 1).
+    """
+    from sklearn.isotonic import IsotonicRegression
+
     p = panel.merge(cells[["row", "col", "neigh_euc"]], on=["row", "col"])
     X = p[SUSC_FEATURES].to_numpy()
     y = p["burned"].to_numpy()
@@ -238,21 +248,30 @@ def susceptibility(panel: pd.DataFrame, cells: pd.DataFrame, n_folds=5, seed=0) 
             max_iter=250, learning_rate=0.05, min_samples_leaf=100, random_state=seed
         )
 
-    for tr, te in SpatialBlockKFold(n_folds, seed).split(groups=p["block"].to_numpy()):
-        prob[te] = make().fit(X[tr], y[tr]).predict_proba(X[te])[:, 1]
-    model = make().fit(X, y)
-    # Baseline probability for projections: current (2024) cover, average weather.
     now = cells.copy()
     for c in COVER:
         now[c] = cells[c + "_end"]
     now["fwi"] = 0.0
-    p_base = model.predict_proba(now[SUSC_FEATURES].to_numpy())[:, 1]
-    # Recalibrate to the observed 2018-2023 burn rate.
-    p_base *= y.mean() / max(p_base.mean(), 1e-9)
+    Xnow = now[SUSC_FEATURES].to_numpy()
+    raw_base = np.empty(len(cells))
+    cell_block = cells["block"].to_numpy()
+    folds = SpatialBlockKFold(n_folds, seed)
+    fold_of_block = dict(zip(p["block"], folds.fold_of(p["block"].to_numpy()), strict=False))
+    cell_fold = np.array([fold_of_block.get(b, -1) for b in cell_block])
+    for k, (tr, te) in enumerate(folds.split(groups=p["block"].to_numpy())):
+        m = make().fit(X[tr], y[tr])
+        prob[te] = m.predict_proba(X[te])[:, 1]
+        sel = cell_fold == k
+        raw_base[sel] = m.predict_proba(Xnow[sel])[:, 1]
+    iso = IsotonicRegression(y_min=0.0, y_max=1.0, out_of_bounds="clip").fit(prob, y)
+    cal = iso.predict(prob)
+    p_base = iso.predict(raw_base)
+    model = make().fit(X, y)
     return {
         "model": model,
+        "calibration": iso,
         "auc": float(roc_auc_score(y, prob)),
-        "brier": float(brier_score_loss(y, prob)),
+        "brier": float(brier_score_loss(y, cal)),
         "base_rate": float(y.mean()),
         "p_base": p_base,
     }
