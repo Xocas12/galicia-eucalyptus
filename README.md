@@ -106,6 +106,21 @@ src/eucalyptus_impact/
 tests/                   unit tests per estimator + end-to-end run
 ```
 
+## Point lookup
+
+```bash
+.venv/bin/euc lookup 42.6187 -8.7500            # latitude, longitude (WGS84)
+.venv/bin/euc lookup 42.6187 -8.7500 --lang gl  # Galician labels
+.venv/bin/euc lookup 42.6187 -8.7500 --json     # machine-readable
+```
+
+For any point in Galicia (after `euc real run`): the 40 m species class in 2017 and 2024 with
+its confidence, WorldCover, elevation, Hansen loss year and EFFIS burnt years; the 1 km cell's
+cover, calibrated annual burn probability with its Galicia percentile and risk class,
+restoration priority, and the estimated eucalyptus effect with a 95% interval; the nearest
+IFN3 plot; and the upstream catchment's area and cover. These are model estimates with the
+limits described below (the 40 m class has plot-level F1 ~0.45).
+
 ## Real data (Galicia)
 
 ```bash
@@ -171,8 +186,10 @@ What the real-data run established, and what it did not:
   484 ha), since map differencing inflates change.
 - **Projections.** A year-by-year engine (validated on the simulator, where it overstates
   restoration benefits by about 40%) projects the scenarios to 2040 with paired uncertainty
-  bands. Restoring 25% of eucalyptus in priority cells cuts mean burnt area by about 2,500
-  ha/yr (5–95% band 870–3,600); the projections inherit the map sensitivity above.
+  bands. Restoring 25% of eucalyptus in priority cells cuts mean burnt area by about 1,450
+  ha/yr (5–95% band 630–2,210; random placement about 520); the projections inherit the map
+  sensitivity above. Baseline burn probabilities are cross-fitted by spatial block and
+  isotonic-calibrated (an earlier in-sample version inflated the high-risk tail).
 - **Water.** No gauge record is reachable (CEDEX, Augas de Galicia, MeteoGalicia, GRDC and
   Zenodo are blocked), so there is no estimate. `real/water.py` builds everything else:
   priority-flood routing on the Copernicus DEM, 79 whole non-nested catchments (30–1,500 km²),

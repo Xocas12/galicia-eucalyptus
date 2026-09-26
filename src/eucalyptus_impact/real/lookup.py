@@ -262,8 +262,9 @@ def format_lookup(r: dict, lang: str = "en") -> str:
             "sel": "na selección de restauración dirixida",
             "yes": "si",
             "no": "non",
-            "cag": "achega do eucalipto fronte a agricultura/outros",
-            "cnat": "achega do eucalipto fronte a frondosas",
+            "cag": "efecto medio galego do eucalipto desta cela, fronte a agricultura/outros",
+            "big": "maior ca a probabilidade da cela: o efecto medio non se traslada ben a celas de pouco risco",
+            "cnat": "o mesmo, fronte a frondosas",
             "ns": "non distinguible de cero",
             "plot": "Parcela IFN3 máis próxima (~1998)",
             "up": "Conca augas arriba",
@@ -298,8 +299,9 @@ def format_lookup(r: dict, lang: str = "en") -> str:
             "sel": "in targeted-restoration set",
             "yes": "yes",
             "no": "no",
-            "cag": "eucalyptus contribution vs agriculture/other",
-            "cnat": "eucalyptus contribution vs native broadleaf",
+            "cag": "Galicia-wide average effect of this cell's eucalyptus, vs agriculture/other",
+            "big": "larger than the cell's own probability: the average effect does not transfer well to low-risk cells",
+            "cnat": "same, vs native broadleaf",
             "ns": "not distinguishable from zero",
             "plot": "Nearest IFN3 plot (~1998)",
             "up": "Upstream catchment",
@@ -352,6 +354,8 @@ def format_lookup(r: dict, lang: str = "en") -> str:
                 f"  {L[lab]}: {pp(e['estimate'])} [{pp(e['ci'][0])}, {pp(e['ci'][1])}]"
                 + ("" if e["significant"] else f" ({L['ns']})")
             )
+            if abs(e["estimate"]) > k["annual_fire_probability"]:
+                lines.append(f"    ({L['big']})")
     if r.get("ifn3_plot"):
         pl = r["ifn3_plot"]
         lines += [f"\n{L['plot']}: {pl['distance_m']:.0f} m, {', '.join(pl['genera'])}"]

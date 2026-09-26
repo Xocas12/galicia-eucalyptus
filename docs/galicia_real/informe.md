@@ -29,7 +29,7 @@
 - **Eucalipto fronte a frondosas autóctonas.** O efecto anterior compárase coa agricultura e outros usos, que son os que máis arden. Fronte ás frondosas autóctonas, que son as que menos arden, 10 puntos de eucalipto no canto de frondosas cambian a probabilidade anual de queima en 0,39 puntos porcentuais (IC 95 % aproximado: -0,018 a 0,79; aproximado porque combina dúas estimacións separadas). Este é o contraste que importa para a restauración.
 - **Severidade.** Entre as celas queimadas, o efecto do eucalipto sobre a clase de severidade EFFIS é -0,24 por unidade de fracción (EE 0,28; non distinguible de cero; n = 2 146).
 - **Do lume á plantación.** Efecto da fracción queimada en 2018–2021 sobre a conversión bruta a eucalipto en 2024: 0,0063 (EE 0,0088), non distinguible de cero.
-- **Proxeccións a 2040.** Restaurar o 25 % do eucalipto cambia a superficie queimada media en -2 499 ha/ano se se fai nas celas prioritarias (banda 5–95 %: -3 577 a -866,9) e en -714,8 ha/ano se se fai ao chou (banda -1 077 a -244,2). Ao menos unha banda exclúe o cero, pero as proxeccións herdan a sensibilidade ao mapa descrita arriba.
+- **Proxeccións a 2040.** Restaurar o 25 % do eucalipto cambia a superficie queimada media en -1 453 ha/ano se se fai nas celas prioritarias (banda 5–95 %: -2 210 a -632) e en -515,5 ha/ano se se fai ao chou (banda -813,3 a -171,5). Ao menos unha banda exclúe o cero, pero as proxeccións herdan a sensibilidade ao mapa descrita arriba.
 - **Auga.** Sen datos de caudal non hai estimación. Unha proba de potencia nas 79 concas reais mostra que, cos mapas de 2017 e 2024, os aforos só detectarían un efecto de 139 mm/ano por 10 puntos de eucalipto ou maior; fai falta un historial de cuberta máis longo (sección 6).
 
 ## 1. Datos empregados
@@ -362,9 +362,9 @@ variabilidade meteorolóxica e a incerteza dos efectos.
 
 | escenario | Δ eucalipto (ha) | Δ frondosas autóctonas (ha) | Δ queimado medio (ha/ano) | percentil 5 | percentil 95 |
 |---|---|---|---|---|---|
-| Límite / moratoria | -24 918 | 1 663 | 22,85 | -33,92 | 66,07 |
-| Restauración dirixida | -130 892 | 107 637 | -2 499 | -3 577 | -866,9 |
-| Restauración aleatoria | -130 863 | 107 608 | -714,8 | -1 077 | -244,2 |
+| Límite / moratoria | -24 918 | 1 663 | 38,09 | -51,07 | 104,2 |
+| Restauración dirixida | -130 869 | 107 614 | -1 453 | -2 210 | -632 |
+| Restauración aleatoria | -130 863 | 107 608 | -515,5 | -813,3 | -171,5 |
 
 ![proxeccións](proxeccions.png)
 
@@ -373,7 +373,7 @@ porque se manteñen as restricións a novas plantacións):
 
 | escenario | Δ eucalipto (ha) | Δ frondosas autóctonas (ha) | Δ queimado medio (ha/ano) | percentil 5 | percentil 95 |
 |---|---|---|---|---|---|
-| Límite / moratoria | -13 477 | 816,6 | 12,44 | -17,35 | 34,82 |
+| Límite / moratoria | -13 477 | 816,7 | 21,52 | -26,43 | 56,83 |
 
 ## 6. Auga
 
