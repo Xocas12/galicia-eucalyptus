@@ -2,6 +2,7 @@
 
 euc run --config configs/fast.yaml          # full synthetic pipeline + report
 euc catalog                                 # print the real-data source catalogue
+euc lookup 42.88 -8.54 [--lang gl] [--json] # local cover, fire history and risk for a point
 """
 
 from __future__ import annotations
@@ -22,6 +23,12 @@ def main(argv=None) -> int:
     rl = sub.add_parser("real", help="real-data pipeline for Galicia (downloads, then analysis)")
     rl.add_argument("stage", choices=["fetch", "run", "all"], nargs="?", default="all")
     rl.add_argument("--out", default="outputs/real")
+    lk = sub.add_parser("lookup", help="local information and risk scores for a coordinate")
+    lk.add_argument("lat", type=float, help="latitude (WGS84)")
+    lk.add_argument("lon", type=float, help="longitude (WGS84, negative west)")
+    lk.add_argument("--lang", choices=["en", "gl"], default="en")
+    lk.add_argument("--json", action="store_true", help="print JSON instead of text")
+    lk.add_argument("--no-catchment", action="store_true", help="skip the upstream catchment")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(message)s")
 
@@ -44,6 +51,22 @@ def main(argv=None) -> int:
 
             path = write_brief(run_real(), args.out)
             print(f"brief written to {path}")
+        return 0
+
+    if args.cmd == "lookup":
+        import json
+
+        from .real.lookup import OutsideGalicia, format_lookup, lookup
+
+        try:
+            r = lookup(args.lat, args.lon, with_catchment=not args.no_catchment)
+        except OutsideGalicia as e:
+            print(e)
+            return 1
+        except FileNotFoundError as e:
+            print(f"missing pipeline output ({e.filename}); run `euc real run` first")
+            return 1
+        print(json.dumps(r, indent=1, default=float) if args.json else format_lookup(r, args.lang))
         return 0
 
     if args.cmd == "catalog":

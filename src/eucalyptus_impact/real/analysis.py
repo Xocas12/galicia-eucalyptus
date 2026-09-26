@@ -441,6 +441,34 @@ def _cached_json(name: str, fn):
     return out
 
 
+def save_cell_scores(cells: pd.DataFrame, fire: dict, susc: dict, proj: dict) -> None:
+    """Per-cell scores for the coordinate lookup (real/lookup.py).
+
+    cell_scores.parquet: location, terrain, cover fractions (2017 and 2024), the fitted annual
+    burn probability at average weather (`p_base`), its percentile across Galicia, the
+    restoration priority score (p_base x eucalyptus share) and whether the cell is in the
+    targeted-restoration set, and the observed 2018-2023 burned shares. fire_effects.json: the
+    cover effects on annual burn probability with SEs, which the lookup turns into a local
+    eucalyptus contribution.
+    """
+    keep = ["row", "col", "x_km", "y_km", "elev", "slope", "dist_sea_km", "log_buildings"]
+    keep += ["dist_settlement_km", "burned_share", "gross_gain"]
+    keep += [f"burned_{yr}" for yr in FIRE_YEARS]
+    df = cells[keep].copy()
+    for c in COVER:
+        df[f"{c}_2017"] = cells[c]
+        df[f"{c}_2024"] = cells[c + "_end"]
+    df["p_base"] = susc["p_base"]
+    df["p_base_pct"] = pd.Series(susc["p_base"]).rank(pct=True).to_numpy()
+    df["priority"] = proj["priority"]
+    df["priority_pct"] = pd.Series(proj["priority"]).rank(pct=True).to_numpy()
+    df["targeted"] = proj["targeted"] > 0
+    df.to_parquet(INTERIM / "cell_scores.parquet")
+    eff = {c: [e.estimate, e.se] for c, e in fire["cover_effects"].items()}
+    meta = {"cover_effects": eff, "base_rate": susc["base_rate"], "auc": susc["auc"]}
+    (INTERIM / "fire_effects.json").write_text(json.dumps(meta, indent=1))
+
+
 def run_real(seed: int = 0) -> dict:
     L = all_layers()
     maps = species_maps()
@@ -461,6 +489,7 @@ def run_real(seed: int = 0) -> dict:
     log.info("conversion done")
     res["projections"] = projections(cells, res["fire"], res["susceptibility"], seed=seed)
     log.info("projections done")
+    save_cell_scores(cells, res["fire"], res["susceptibility"], res["projections"])
     res["reference"] = _cached_json("reference", reference_check)
     if (INTERIM / "s2_2024_re.done").exists():
         from .species import red_edge_pilot
