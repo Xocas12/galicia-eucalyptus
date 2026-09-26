@@ -71,6 +71,8 @@ OpenStreetMap), F1 por clase:
 | agricultura | 0,28 | 0,287 |
 | outros | 0,966 | 0,969 |
 
+Probáronse tamén as bandas do bordo vermello de Sentinel-2 (B05, B07, B8A), que axudan a distinguir especies. A mellora é pequena e dentro do ruído (F1 do eucalipto na proba do norte 0,721 → 0,727; fronte ao IFN3 0,453 → 0,465), así que o mapa non se cambiou.
+
 Pseudoetiquetas de eucalipto engadidas: 39 445 píxeles
 (o mesmo modelo clasifica os dous anos).
 
@@ -309,6 +311,23 @@ de fracción):
 | 2017 retrodatado | -0,02679 | 0,009813 | -0,04602 | -0,007552 |
 | 2017 independente | -0,0148 | 0,0076 | -0,0297 | 9,827e-05 |
 | 2024 (posterior aos lumes) | -0,04163 | 0,012 | -0,06515 | -0,0181 |
+
+**Comprobación sobre o terreo, sen mapa.** As parcelas do IFN3 (arredor de 1998) din
+onde había eucalipto antes dos lumes de 2018–2023, sen erro de clasificación. Resultado:
+probabilidade anual de que ardese o píxel da parcela, segundo EFFIS, cos mesmos controis a
+1 km e a presenza de piñeiro ou frondosas na parcela (6 222 parcelas,
+1 333 con eucalipto; só 122 arderon).
+
+- Taxas brutas: 0,14 % ao ano nas parcelas con eucalipto e
+  0,38 % nas demais.
+- Efecto con controis (DML): -0,052 puntos porcentuais (IC 95 %: -0,16 a 0,054), non distinguible de cero.
+- Parcelas só de eucalipto fronte a parcelas con piñeiro: -0,1 puntos porcentuais (IC 95 %: -0,26 a 0,053); fronte a
+  parcelas con frondosas: -0,15 puntos porcentuais (IC 95 %: -0,41 a 0,11).
+
+As escalas non son comparables coas da táboa anterior (un punto fronte a unha cela de 1 km),
+así que só conta o signo: sobre o terreo tampouco hai sinal de que o eucalipto arda máis. Con
+tan poucas parcelas queimadas a comprobación ten pouca potencia, e non resolve o contraste co
+bosque autóctono.
 
 Sensibilidade á confusión non observada:
 

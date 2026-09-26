@@ -157,6 +157,15 @@ What the real-data run established, and what it did not:
   broadleaf, eucalyptus raises it by 0.39 pp, but the interval touches zero. The three map
   versions (2017 backdated, 2017 independent, 2024) agree on the sign, but not all are
   significant: the result depends on the map. No severity effect is detectable.
+- **Ground check of the fire result.** IFN3 plots record where eucalyptus was around 1998,
+  with no map error. Plot-level burn rates 2018-2023 (EFFIS): 0.14%/yr on eucalyptus plots vs
+  0.38% elsewhere; with the same controls the difference is -0.05 pp (95% CI -0.16 to 0.05),
+  and eucalyptus-only plots vs pine or native plots are also negative but not significant.
+  Only 122 plots burned, so it is weak, but it agrees in sign with the map-based estimate:
+  no sign that eucalyptus burns more. `analysis.plot_fire_check`.
+- **Red-edge bands.** Adding Sentinel-2 B05/B07/B8A indices moves eucalyptus F1 only within
+  noise (north transfer 0.721 -> 0.727, IFN3 plots 0.453 -> 0.465), so the maps were not
+  rebuilt (`species.red_edge_pilot`, `s2.build_period(..., product="re")`).
 - **Native forest.** 2017→2024 native-to-eucalyptus conversion is reported three ways (all
   pixels 1,548 ha, confident pixels 563 ha, confident pixels corroborated by Hansen loss or fire
   484 ha), since map differencing inflates change.
