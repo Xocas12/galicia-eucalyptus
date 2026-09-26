@@ -34,6 +34,8 @@ os.environ.setdefault("GDAL_HTTP_MULTIRANGE", "YES")
 os.environ.setdefault("GDAL_HTTP_MAX_RETRY", "5")
 os.environ.setdefault("GDAL_HTTP_RETRY_DELAY", "2")
 os.environ.setdefault("VSI_CACHE", "TRUE")
+# Public buckets only: never sign requests with whatever AWS keys the environment carries.
+os.environ.setdefault("AWS_NO_SIGN_REQUEST", "YES")
 
 
 def transform_of(grid: Grid):

@@ -30,6 +30,7 @@ PERIODS = {
 # snow.
 BAD_SCL = np.array([0, 1, 3, 8, 9, 10, 11])
 INDEX_NAMES = ("ndvi", "ndmi", "nbr")
+REFLECTANCE_KEYS = ("red", "nir", "swir16", "swir22", "rededge1", "rededge3", "nir08")
 
 
 @dataclass
@@ -49,7 +50,9 @@ def band_scale_offset(meta: dict) -> tuple[dict, dict]:
     """
     applied = bool(meta["properties"].get("earthsearch:boa_offset_applied", False))
     sc, of = {}, {}
-    for key in ("red", "nir", "swir16", "swir22"):
+    for key in REFLECTANCE_KEYS:
+        if key not in meta["assets"]:
+            continue
         rb = meta["assets"][key].get("raster:bands", [{}])[0]
         sc[key] = rb.get("scale", 1e-4)
         of[key] = 0.0 if applied else rb.get("offset", 0.0)
@@ -142,6 +145,19 @@ ASSET_FILE = {
     "swir22": ("B12.tif", 2),
     "scl": ("SCL.tif", 2),
 }
+# Red-edge product: NDRE (B8A vs B05), a red-edge slope (B07 vs B05) and the SWIR ratio
+# (B11 vs B12). Red-edge reflectance tracks leaf chlorophyll and canopy structure, which
+# differ between eucalyptus and pine; the three indices extend the NDVI/NDMI/NBR cube.
+RE_ASSET_FILE = {
+    "rededge1": ("B05.tif", 2),
+    "rededge3": ("B07.tif", 2),
+    "nir08": ("B8A.tif", 2),
+    "swir16": ("B11.tif", 2),
+    "swir22": ("B12.tif", 2),
+    "scl": ("SCL.tif", 2),
+}
+PRODUCTS = {"idx": ASSET_FILE, "re": RE_ASSET_FILE}
+PRODUCT_INDICES = {"idx": INDEX_NAMES, "re": ("ndre", "nd_re", "nd_swir")}
 
 
 def _read(url: str, factor: int):
@@ -163,41 +179,53 @@ def _read(url: str, factor: int):
             time.sleep(2 * (attempt + 1))
 
 
-def scene_indices(scene: Scene):
-    """(3, h, w) float32 NDVI/NDMI/NBR at 40 m in the tile's native grid, NaN where invalid."""
+def scene_indices(scene: Scene, product: str = "idx"):
+    """(3, h, w) index stack at 40 m in the tile's native grid, NaN where invalid.
+
+    product "idx": NDVI, NDMI, NBR. product "re": NDRE, red-edge slope, SWIR ratio.
+    """
     bands = {}
     tr = crs = None
-    for key, (fname, factor) in ASSET_FILE.items():
+    for key, (fname, factor) in PRODUCTS[product].items():
         arr, t, c = _read(f"{BUCKET}/{scene.prefix}{fname}", factor)
-        if key == "red":
+        if tr is None:
             tr, crs = t, c
         bands[key] = arr
     ok = ~np.isin(bands["scl"], BAD_SCL)
     refl = {}
-    for k in ("red", "nir", "swir16", "swir22"):
-        r = bands[k].astype("float32") * scene.scale[k] + scene.offset[k]
+    for k in bands:
+        if k == "scl":
+            continue
+        r = bands[k].astype("float32") * scene.scale.get(k, 1e-4) + scene.offset.get(k, 0.0)
         refl[k] = np.where((bands[k] > 0) & ok, r, np.nan)
     with np.errstate(invalid="ignore", divide="ignore"):
         nd = lambda a, b: (a - b) / (a + b)  # noqa: E731
-        out = np.stack(
-            [
+        if product == "idx":
+            layers = [
                 nd(refl["nir"], refl["red"]),
                 nd(refl["nir"], refl["swir16"]),
                 nd(refl["nir"], refl["swir22"]),
             ]
-        )
+        else:
+            layers = [
+                nd(refl["nir08"], refl["rededge1"]),
+                nd(refl["rededge3"], refl["rededge1"]),
+                nd(refl["swir16"], refl["swir22"]),
+            ]
+        out = np.stack(layers)
     out[(out < -1) | (out > 1)] = np.nan
     return out.astype("float16"), tr, crs
 
 
-def build_period(period: str, threads: int = 4) -> np.memmap:
-    """Build (or reuse) the monthly composite cube for one period."""
+def build_period(period: str, threads: int = 4, product: str = "idx") -> np.memmap:
+    """Build (or reuse) the monthly composite cube for one period and product."""
     from rasterio.warp import Resampling, reproject
 
     from .common import transform_of
 
-    path = INTERIM / f"s2_{period}.f16"
-    done = INTERIM / f"s2_{period}.done"
+    suffix = "" if product == "idx" else f"_{product}"
+    path = INTERIM / f"s2_{period}{suffix}.f16"
+    done = INTERIM / f"s2_{period}{suffix}.done"
     ny, nx = GRID_40M.shape
     shape = (12, 3, ny, nx)
     if done.exists():
@@ -223,7 +251,7 @@ def build_period(period: str, threads: int = 4) -> np.memmap:
 
     def safe_indices(sc):
         try:
-            return scene_indices(sc)
+            return scene_indices(sc, product)
         except Exception as e:  # missing band files happen occasionally in the archive
             log.info("scene failed %s: %s", sc.prefix, e)
             return None
