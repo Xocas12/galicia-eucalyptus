@@ -359,7 +359,7 @@ def format_lookup(r: dict, lang: str = "en") -> str:
         u = r["upstream"]
         cov = ", ".join(f"{t(n)} {pct(v)}" for n, v in u["cover_2024"].items() if v >= 0.005)
         lines += [
-            f"\n{L['up']}: {L['area']} {dec(u['area_km2'])} km² {L['trunc'] if u['truncated'] else ''}",
+            f"\n{L['up']}: {L['area']} {dec(u['area_km2'], 2 if u['area_km2'] < 10 else 1)} km² {L['trunc'] if u['truncated'] else ''}",
             f"  {L['cov']}: {cov}",
         ]
     lines += ["", L["caveat"]]
