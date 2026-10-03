@@ -582,3 +582,69 @@ def red_edge_pilot(seed: int = 0) -> dict:
             },
         }
     return out
+
+
+def mfe_label_experiment(per_class: int = 15_000, seed: int = 0) -> dict:
+    """Do Mapa Forestal labels improve the 2024 map?
+
+    MFE50 pixels with no recorded disturbance since 2001 (no Hansen loss, no EFFIS fire) are
+    used as extra training labels from half of the 10 km blocks; both models (with and without
+    them) are scored on the other half against MFE50 and the IFN3 plots there. The MFE50 is from
+    about 1998, so its labels can be stale on pixels that changed without a recorded loss.
+    """
+    from ..geo.grid import block_ids
+    from .reference import gbif_records, inventory_plots, mfe_reference
+
+    L = all_layers()
+    cube = build_period("2024")
+    ref = mfe_reference("mfe50")
+    aoi = L["aoi"]["mask40"].astype(bool)
+    ly = L["hansen"]["lossyear40"]
+    burnt = np.zeros(ly.shape, bool)
+    for y in range(2018, 2024):
+        burnt |= L["effis"][f"burned40_{y}"]
+    blocks = block_ids(GRID_40M, 10)
+    rng = np.random.default_rng(seed)
+    ub = np.unique(blocks[aoi])
+    train_blocks = np.isin(blocks, rng.choice(ub, len(ub) // 2, replace=False))
+    usable = aoi & (ref < 6) & (ly == 0) & ~burnt
+    lab = np.where(usable & train_blocks, ref, 255).astype("uint8")
+    mr, mc, my = sample_training(lab, per_class, seed)
+    r, c, y, _ = build_training("2024", 30_000, seed)
+    keep = train_blocks[r, c]
+    r, c, y = r[keep], c[keep], y[keep]
+    X0 = _pixels_features(cube, r, c)
+    Xm = _pixels_features(cube, mr, mc)
+    test = aoi & (ref < 6) & ~train_blocks
+    tr_, tc_ = np.nonzero(test)
+    k = rng.choice(len(tr_), min(200_000, len(tr_)), replace=False)
+    tr_, tc_ = tr_[k], tc_[k]
+    Xt = _pixels_features(cube, tr_, tc_)
+    ty = ref[tr_, tc_].astype(int)
+    und = (ly[tr_, tc_] == 0) & ~burnt[tr_, tc_]
+    plots = inventory_plots(gbif_records())
+    plots = plots[aoi[plots["row"], plots["col"]] & ~train_blocks[plots["row"], plots["col"]]]
+    Xp = _pixels_features(cube, plots["row"].to_numpy(), plots["col"].to_numpy())
+    pe = (plots["plot_type"] == "eucalipto").to_numpy()
+
+    def f1(t, p):
+        tp = int(((p == 0) & t).sum())
+        pr, rc = tp / max(int((p == 0).sum()), 1), tp / max(int(t.sum()), 1)
+        return {"precision": pr, "recall": rc, "f1": 2 * pr * rc / max(pr + rc, 1e-9)}
+
+    out = {"n_mfe_labels": len(my), "n_test_pixels": len(ty), "n_test_plots": len(plots)}
+    for name, (X, yy) in {
+        "baseline": (X0, y),
+        "with_mfe50": (np.vstack([X0, Xm]), np.concatenate([y, my])),
+    }.items():
+        m = make_classifier(seed).fit(X, yy)
+        p = m.predict(Xt)
+        pp = m.predict(Xp)
+        out[name] = {
+            "mfe_all": f1(ty == 0, p),
+            "mfe_undisturbed": f1(ty[und] == 0, p[und]),
+            "mfe_accuracy": float((p == ty).mean()),
+            "ifn3": f1(pe, pp),
+        }
+        log.info("MFE label experiment %s: %s", name, out[name])
+    return out
