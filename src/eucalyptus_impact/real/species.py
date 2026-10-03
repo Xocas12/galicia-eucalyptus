@@ -220,12 +220,23 @@ def pseudo_eucalyptus_2024(L, per_square: int = 8000, candidates: int = 80_000, 
     return np.concatenate(out_r), np.concatenate(out_c)
 
 
-def build_training(period: str, per_class: int, seed: int, exclude_square: int | None = None):
-    """OSM labels cleaned by winter behaviour, plus Galicia-wide eucalyptus pseudo-labels.
+def build_training(
+    period: str,
+    per_class: int,
+    seed: int,
+    exclude_square: int | None = None,
+    mfe: bool | None = None,
+    mfe_per_class: int = 15_000,
+):
+    """OSM labels cleaned by winter behaviour, Galicia-wide eucalyptus pseudo-labels and, when
+    available, Mapa Forestal (MFE50) labels.
 
     For 2017 the 2024 pseudo-labels are reused where the pixel is stable between the two maps
-    (no Hansen loss 2017-2024, no EFFIS burn 2018-2023), as with the OSM labels. Returns rows,
-    cols, labels and source (0 = OSM, 1 = pseudo-label).
+    (no Hansen loss 2017-2024, no EFFIS burn 2018-2023), as with the OSM labels. MFE50 labels
+    (about 1998) are used only on pixels with no Hansen loss since 2001 and no EFFIS fire;
+    `mfe=None` uses them if the MFE50 files are present (they raised held-out accuracy against
+    MFE50 from 0.55 to 0.61 and IFN3 plot F1 from 0.45 to 0.47, see mfe_label_experiment).
+    Returns rows, cols, labels and source (0 = OSM, 1 = pseudo-label, 2 = MFE50).
     """
     L = all_layers()
     cube = build_period(period)
@@ -240,6 +251,25 @@ def build_training(period: str, per_class: int, seed: int, exclude_square: int |
     rows, cols = np.concatenate([r, pr]), np.concatenate([c, pc])
     y = np.concatenate([y, np.zeros(len(pr), int)])
     src = np.concatenate([np.zeros(len(r), int), np.ones(len(pr), int)])
+    if mfe is None:
+        from .common import RAW
+
+        mfe = any((RAW / "mfe50").glob("*.shp"))
+    if mfe:
+        from .reference import mfe_reference
+
+        ref = mfe_reference("mfe50")
+        ly = L["hansen"]["lossyear40"]
+        burnt = np.zeros(ly.shape, bool)
+        for yr in range(2018, 2024):
+            burnt |= L["effis"][f"burned40_{yr}"]
+        usable = L["aoi"]["mask40"].astype(bool) & (ref < 6) & (ly == 0) & ~burnt
+        mr, mc, my = sample_training(
+            np.where(usable, ref, 255).astype("uint8"), mfe_per_class, seed
+        )
+        rows, cols = np.concatenate([rows, mr]), np.concatenate([cols, mc])
+        y = np.concatenate([y, my])
+        src = np.concatenate([src, np.full(len(my), 2)])
     if exclude_square is not None:
         ok = _square(rows, cols) != exclude_square
         rows, cols, y, src = rows[ok], cols[ok], y[ok], src[ok]
@@ -331,6 +361,7 @@ def train_period(period: str, per_class: int = 30_000, seed: int = 0, n_folds: i
     metrics = {
         "n_train": len(y),
         "n_pseudo_eucalyptus": int((src == 1).sum()),
+        "n_mfe50_labels": int((src == 2).sum()),
         "per_class_train": np.bincount(y, minlength=6).tolist(),
         "spatial_cv_accuracy": float(accuracy_score(y, cv_pred)),
         "kappa": float(cohen_kappa_score(y, cv_pred)),
@@ -610,7 +641,7 @@ def mfe_label_experiment(per_class: int = 15_000, seed: int = 0) -> dict:
     usable = aoi & (ref < 6) & (ly == 0) & ~burnt
     lab = np.where(usable & train_blocks, ref, 255).astype("uint8")
     mr, mc, my = sample_training(lab, per_class, seed)
-    r, c, y, _ = build_training("2024", 30_000, seed)
+    r, c, y, _ = build_training("2024", 30_000, seed, mfe=False)
     keep = train_blocks[r, c]
     r, c, y = r[keep], c[keep], y[keep]
     X0 = _pixels_features(cube, r, c)
