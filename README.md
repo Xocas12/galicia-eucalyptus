@@ -8,11 +8,12 @@ to **native forest**, **wildfire** and **water**, and what alternative forest pl
 
 - **Real-data brief for Galicia (in Galician):** [`docs/galicia_real/informe.md`](docs/galicia_real/informe.md)
 
-> **Read the real-data results with their caveats.** The species maps are trained on
-> OpenStreetMap labels, not the official forest map or inventory (unreachable from the build
-> environment), and 91% of the eucalyptus labels sit in one 100 km square in the north. Outside
-> it, the eucalyptus layer does not validate, and that limits every estimate that uses it.
-> Numbers from the synthetic runs are properties of the methods, not facts about Galicia.
+> **Read the real-data results with their caveats.** The species maps are trained on cleaned
+> OpenStreetMap labels, harvest-history pseudo-labels and the Mapa Forestal de España (MFE50,
+> about 1998), and are checked against the MFE50 and the IFN3 inventory plots. The eucalyptus
+> area is plausible, but pixel- and plot-level agreement is modest (F1 about 0.5), and map error
+> attenuates every estimate that uses the map. Numbers from the synthetic runs are properties of
+> the methods, not facts about Galicia.
 
 Self-contained subproject: it shares nothing with `gosplan/` at the repository root and has its own
 `pyproject.toml`, tests and virtual environment.
@@ -131,7 +132,9 @@ uv pip install -e '.[geo,dev]' pyarrow
 
 Everything comes from public object storage: Sentinel-2 L2A COGs, ESA WorldCover, the
 Copernicus DEM, Hansen Global Forest Change v1.12, EFFIS burn severity 2018–2023, Overture Maps
-(OpenStreetMap land, land-use and building layers), NOAA GHCN stations and Natural Earth.
+(OpenStreetMap land, land-use and building layers), NOAA GHCN stations, Natural Earth, the GBIF
+occurrence archive (IFN3 plots), Landsat Collection 2 (Planetary Computer), CAMELS-ES (Zenodo)
+and the MFE50 (MITECO).
 Downloads are cached under `data/` (git-ignored).
 
 What the real-data run established, and what it did not:
@@ -140,38 +143,43 @@ What the real-data run established, and what it did not:
   across tiles after removing per-tile radiometric offsets estimated on tile overlaps (the
   archive's per-tile atmospheric correction left seams up to ~0.02).
 - **Species maps.** A gradient-boosting classifier on harmonic phenology and gap-filled
-  monthly indices, trained on 2024 imagery. OSM labels are cleaned by winter behaviour
-  (eucalyptus stays green and wet in winter; deciduous natives drop), and eucalyptus
-  pseudo-labels are added across Galicia from evergreen, winter-moist pixels in areas with a
-  history of Hansen clear-cut harvests. Tested by training without the northern 100 km square
-  and predicting its OSM labels, eucalyptus F1 is 0.72 (it was about 0 before the cleaning and
-  pseudo-labels). The 2017 image is quantile-normalised to 2024 on stable pixels, and 2017 classes
-  are backdated from 2024 wherever no harvest or fire happened in between (an independent 2017
-  classifier transfers with F1 0.65 and is kept as a sensitivity check). Mapped eucalyptus:
-  about 440k ha in 2024 and 489k ha in 2017, with the difference on harvested or burnt pixels.
-- **Independent map check.** The official downloads (MFE, IFN4) are blocked here, but the GBIF
-  archive on AWS holds the Ministry's **IFN3** plots (MAGRAMA, collection IFN3; Galicia surveyed
-  around 1997-1998): a systematic 1 km grid with the species present in each plot, but no
-  counts or dates (about 6,900 plots in Galicia). The eucalyptus area is right in aggregate
-  (31% of forested plots mapped as eucalyptus in 2024 vs 27.5% listing it in 1998), but plot-level
-  agreement is low: F1 0.45 overall, 0.44 outside the north, well below the OSM transfer test.
-  A date-matched Landsat 2000 map agrees no better (F1 0.42), so most of the gap is the
-  reference (any eucalyptus in a 25 m plot) plus map error, not change since 1998. Adding the
-  plots to training (block-split experiment) did not help. Opportunistic GBIF sightings are a
-  secondary check. `real/reference.py`.
-- **Landsat back-cast (1990-2017).** Landsat 4-8 Collection 1 from Google's public archive,
-  seasonal NDVI/NDMI/NBR composites for four epochs, one classifier per epoch trained on pixels
-  unchanged since 2001 (`real/landsat.py`). It **fails validation**: eucalyptus F1 0.53-0.65,
-  no area trend (597, 551, 573, 572 kha), and pixels turning eucalyptus 2000-2010 show Hansen
-  loss no more often than unchanged pixels (1.8% vs 1.6%). It is gated out of the water study.
-  Doing it properly needs Landsat Collection 2 surface reflectance (Planetary Computer, or the
-  requester-pays `usgs-landsat` bucket with AWS credentials).
+  monthly indices, trained on 2024 imagery. Labels: OSM polygons cleaned by winter behaviour
+  (eucalyptus stays green and wet in winter; deciduous natives drop), eucalyptus pseudo-labels
+  from evergreen, winter-moist pixels in areas with a history of Hansen clear-cuts, and the
+  Mapa Forestal de España (MFE50, about 1998) on pixels with no recorded loss or fire since 2001.
+  Trained without the northern 100 km square and tested on its OSM labels, eucalyptus F1 is
+  0.77 (0.72 without the MFE labels, about 0 before cleaning and pseudo-labels). The 2017 image
+  is quantile-normalised to 2024 on stable pixels and its classes are backdated from 2024
+  wherever no harvest or fire happened in between (an independent 2017 classifier, F1 0.68, is
+  kept as a sensitivity check). Mapped eucalyptus: about 442k ha in 2024 and 483k ha in 2017.
+- **Independent map checks.** Two official references, both from around 1998:
+  - *MFE50* (MITECO, 1:50,000, IFN3 base; wall to wall, rasterised by forest formation, mixed
+    formations excluded): the 2024 map scores overall accuracy 0.61, eucalyptus precision 0.47,
+    recall 0.68, F1 0.55; pine F1 0.47, native F1 0.59. A block-split experiment (train on half
+    of the 10 km blocks, test on the other half) showed that adding MFE labels raises held-out
+    accuracy from 0.55 to 0.61 and IFN3-plot F1 from 0.45 to 0.47, so the maps now use them.
+    The newer MFE25 (IFN4 base, 2011) sits behind an anti-bot challenge on the download server;
+    put its shapefile in `data/raw/mfe25/` to use it.
+  - *IFN3 plots* (on GBIF, MAGRAMA collection IFN3; species present per plot, no counts or
+    dates; about 6,900 plots): the eucalyptus share is right in aggregate (30% of forested plots
+    mapped as eucalyptus vs 27.5% listing it), plot-level F1 0.46.
+
+  Pixel- and plot-level agreement stays modest: partly real change since 1998, partly map
+  error. Opportunistic GBIF sightings are a secondary check. `real/reference.py`.
+- **Landsat back-cast (1990-2017).** Landsat 4-8 Collection 2 surface reflectance from
+  Planetary Computer: monthly NDVI/NDMI/NBR cubes per three-year epoch from all clear scenes,
+  the Sentinel-2 features, and one classifier per epoch trained on pixels unchanged since 2001
+  (`real/landsat.py`). Much better than the earlier Level-1 attempt (eucalyptus F1 0.67, 0.71,
+  0.71, 0.77 for 1990, 2000, 2010, 2017; against MFE50 the 2000 map scores F1 0.57), but it
+  still **fails the change test**: the area does not grow (571, 570, 552, 543 kha, against the
+  known expansion), and pixels turning eucalyptus in 2000-2010 had a Hansen clear-cut only 1.75
+  times as often as unchanged pixels (the gate requires 2). It is gated out of the water study.
 - **Fire (EFFIS 2018–2023, 29,565 cells × 6 years).** Relative to agriculture and other cover,
-  10 more points of eucalyptus lower annual burn probability by 0.27 pp (95% CI −0.46 to
-  −0.08; robustness value 0.018, so a weak confounder could explain it). Against native
-  broadleaf, eucalyptus raises it by 0.39 pp, but the interval touches zero. The three map
-  versions (2017 backdated, 2017 independent, 2024) agree on the sign, but not all are
-  significant: the result depends on the map. No severity effect is detectable.
+  10 more points of eucalyptus lower annual burn probability by 0.26 pp (95% CI −0.46 to
+  −0.07; robustness value 0.017, so a weak confounder could explain it). Against native
+  broadleaf, eucalyptus raises it by 0.23 pp, but the interval includes zero (−0.12 to 0.57).
+  All three map versions now agree and are significant (2017 backdated −0.26, 2017 independent
+  −0.16, 2024 −0.46). No severity effect is detectable.
 - **Ground check of the fire result.** IFN3 plots record where eucalyptus was around 1998,
   with no map error. Plot-level burn rates 2018-2023 (EFFIS): 0.14%/yr on eucalyptus plots vs
   0.38% elsewhere; with the same controls the difference is -0.05 pp (95% CI -0.16 to 0.05),
@@ -182,27 +190,25 @@ What the real-data run established, and what it did not:
   noise (north transfer 0.721 -> 0.727, IFN3 plots 0.453 -> 0.465), so the maps were not
   rebuilt (`species.red_edge_pilot`, `s2.build_period(..., product="re")`).
 - **Native forest.** 2017→2024 native-to-eucalyptus conversion is reported three ways (all
-  pixels 1,548 ha, confident pixels 563 ha, confident pixels corroborated by Hansen loss or fire
-  484 ha), since map differencing inflates change.
+  pixels 1,477 ha, confident pixels 100 ha, confident pixels corroborated by Hansen loss or
+  fire 89 ha), since map differencing inflates change. With the MFE-trained maps the confident
+  figures fell from 563/484 ha: most of the earlier "conversion" was classification noise.
 - **Projections.** A year-by-year engine (validated on the simulator, where it overstates
   restoration benefits by about 40%) projects the scenarios to 2040 with paired uncertainty
-  bands. Restoring 25% of eucalyptus in priority cells cuts mean burnt area by about 1,450
-  ha/yr (5–95% band 630–2,210; random placement about 520); the projections inherit the map
-  sensitivity above. Baseline burn probabilities are cross-fitted by spatial block and
-  isotonic-calibrated (an earlier in-sample version inflated the high-risk tail).
-- **Water.** No gauge record is reachable (CEDEX, Augas de Galicia, MeteoGalicia, GRDC and
-  Zenodo are blocked), so there is no estimate. `real/water.py` builds everything else:
-  priority-flood routing on the Copernicus DEM, 79 whole non-nested catchments (30–1,500 km²),
-  water-year precipitation and Thornthwaite PET from GHCN stations, catchment cover paths from
-  the 2017/2024 maps dated by Hansen loss or fire, and loaders for CEDEX `afliq.csv`/`estaf.csv`
-  or a generic `stations.csv` + `flows.csv` dropped in `data/raw/gauges/`. A power study on the
-  real catchments (simulated flows with a known effect) shows the estimator is unbiased with
-  correct coverage, but eucalyptus changes by only ~2 points per catchment over 2017–2024, so
-  the minimum detectable effect is ~140 mm/yr per 10 points, far above plausible effects
-  (10–20). The published gauge datasets for Spain (CAMELS-ES, EStreams, GRDC-Caravan) are on
-  Zenodo, which this environment's network policy blocks. A cover history six times longer (e.g. a working Landsat back-cast) brings it to ~21, and
-  swapping map versions roughly doubles the estimate, so map error matters as much as noise.
+  bands. Restoring 25% of eucalyptus in priority cells changes mean burnt area by about −960
+  ha/yr (5–95% band −1,740 to +280; random placement about −330): the bands now include zero.
+  Baseline burn probabilities are cross-fitted by spatial block and isotonic-calibrated.
+- **Water.** CAMELS-ES (Zenodo 15040948, CC BY 4.0) gives daily flows, EMO-1 precipitation and
+  reference ET for 33 catchments mostly inside Galicia, 1992–2020. With two-way fixed effects
+  the estimate is uninformative: −1,009 mm/yr per 10 points of eucalyptus (95% CI −2,236 to
+  218), because eucalyptus barely changes within catchments in the gauge years (the maps start
+  in 2017 and the records end in 2020). A power study on 79 DEM catchments confirms it: with
+  the 2017/2024 maps the minimum detectable effect is ~120 mm/yr per 10 points, far above
+  plausible effects (10–20); a cover history six times longer would bring it to ~20, which is
+  what the Landsat back-cast was for. `real/water.py` also reads CEDEX `afliq.csv`/`estaf.csv`
+  or a generic `stations.csv` + `flows.csv` in `data/raw/gauges/`.
 
-Next steps that would change the conclusions: a dated, pixel-level reference (the Mapa
-Forestal de España polygons or IFN4 plots with dominance), gauge data plus a longer (Landsat) cover history for the water question, and EFFIS perimeters
-before 2018 for more fire years.
+Next steps that would change the conclusions: a current pixel-level reference (the MFE25 for
+Galicia, 2011, downloadable by hand from MITECO), a cover history that passes the change test
+(e.g. a dedicated change-detection approach on Landsat), and EFFIS perimeters before 2018 for
+more fire years.

@@ -818,9 +818,9 @@ def _resumo(res: dict) -> str:
     items.append(
         f"- **Superficie de eucalipto (mapa).** {num(a24['map_area_ha'] / 1e3, 3)} mil ha en 2024 "
         f"e {num(a17['map_area_ha'] / 1e3, 3)} mil ha en 2017 (reconto de píxeles; "
-        f"{num(a24['soft_area_ha'] / 1e3, 3)} mil ha en 2024 sumando probabilidades). **Estas "
-        "cifras non están validadas** co inventario oficial descargado do Ministerio (IFN, Mapa "
-        "Forestal de España): compárense con el antes de citalas (sección 2)."
+        f"{num(a24['soft_area_ha'] / 1e3, 3)} mil ha en 2024 sumando probabilidades). Compáranse "
+        "co Mapa Forestal de España (MFE50, arredor de 1998) e co IFN3 na sección 2; non hai "
+        "unha referencia oficial recente (o MFE25 de 2011 non se puido descargar)."
         + _ref_resumo(res.get("reference"), res.get("inventory"))
     )
     items.append(
