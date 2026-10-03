@@ -404,10 +404,14 @@ def c2_scene_indices(item, factor: int = 2):
     import planetary_computer as pc
     import rasterio
 
-    item = pc.sign(item)
+    def signed(key):
+        # Strip any earlier SAS token first: tokens expire after about an hour, and signing
+        # an already-signed URL leaves the stale token in place.
+        return pc.sign(item.assets[key].href.split("?")[0])
+
     refl, tr, crs = {}, None, None
     for key in ("red", "nir08", "swir16", "swir22", "qa_pixel"):
-        href = item.assets[key].href
+        href = signed(key)
         for attempt in range(4):
             try:
                 with rasterio.open(href) as src:
@@ -423,8 +427,7 @@ def c2_scene_indices(item, factor: int = 2):
                 if attempt == 3:
                     raise
                 time.sleep(3 * (attempt + 1))
-                item = pc.sign(item)
-                href = item.assets[key].href
+                href = signed(key)
         refl[key] = a
     bad = (refl.pop("qa_pixel").astype("uint16") & C2_BAD_BITS) > 0
     r = {
@@ -479,8 +482,12 @@ def c2_cube(epoch: str) -> np.memmap:
     if done.exists():
         return np.memmap(path, dtype="float16", mode="r", shape=shape)
     by_month = c2_items(epoch)
-    cube = np.memmap(path, dtype="float16", mode="w+", shape=shape)
+    mode = "r+" if path.exists() else "w+"
+    cube = np.memmap(path, dtype="float16", mode=mode, shape=shape)
     for k, month in enumerate(C2_MONTHS):
+        mdone = INTERIM / f"landsat_c2_{epoch}_m{month:02d}.done"
+        if mdone.exists():
+            continue
         items = by_month.get(month, [])
         t0 = time.time()
         if items:
@@ -488,6 +495,8 @@ def c2_cube(epoch: str) -> np.memmap:
         else:
             cube[k], n_ok = np.nan, 0
         cube.flush()
+        if n_ok >= 0.8 * len(items):
+            mdone.write_text("ok")
         log.info(
             "landsat C2 %s month %02d: %d/%d scenes, %.0f%% valid, %.0fs",
             epoch,
@@ -497,6 +506,9 @@ def c2_cube(epoch: str) -> np.memmap:
             100 * np.isfinite(cube[k, 0]).mean(),
             time.time() - t0,
         )
+    missing = [m for m in C2_MONTHS if not (INTERIM / f"landsat_c2_{epoch}_m{m:02d}.done").exists()]
+    if missing:
+        raise RuntimeError(f"landsat C2 {epoch}: months {missing} incomplete; rerun to resume")
     done.write_text("ok")
     return np.memmap(path, dtype="float16", mode="r", shape=shape)
 
