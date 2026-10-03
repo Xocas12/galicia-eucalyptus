@@ -501,6 +501,14 @@ def _water_section(w: dict | None) -> str:
             ]
         )
         informative = 1.96 * se < 50
+        vals = [x["runoff_mm_per_10pts"][0] for x in cam["versions"].values()]
+        same_txt = (
+            "\nAs dúas versións do mapa de 2017 dan o mesmo resultado porque só difiren en "
+            "píxeles sen perturbación, cuxo cambio se data en 2021, despois do último ano con "
+            "caudais (2020).\n"
+            if len(vals) > 1 and max(vals) - min(vals) < 1e-6
+            else ""
+        )
         gauge_txt = f"""**Estimación con aforos reais (CAMELS-ES).** CAMELS-ES (Zenodo, CC BY 4.0) recolle
 caudais diarios, choiva e evapotranspiración de referencia (EMO-1) de estacións de aforo
 españolas. Úsanse as {cam["n_catchments"]} concas con polo menos o 80 % da superficie en Galicia,
@@ -509,7 +517,7 @@ anos-conca; escorrentía media {num(cam["runoff_mean_mm"], 3)} mm/ano). Modelo d
 de conca e ano, con choiva, evapotranspiración e as outras cubertas como controis.
 
 {_md_table(tab, 3, values=("cover_version",))}
-
+{same_txt}
 Resultado principal: un aumento de 10 puntos de eucalipto cambia a escorrentía anual en
 {num(e, 3)} mm (IC 95 %: {num(e - 1.96 * se, 3)} a {num(e + 1.96 * se, 3)}) e o caudal
 mínimo de 7 días en {num(lo, 2)} mm/día (IC 95 %: {num(lo - 1.96 * lse, 2)} a
@@ -536,7 +544,8 @@ mínimo de 7 días en {num(lo, 2)} mm/día (IC 95 %: {num(lo - 1.96 * lse, 2)} a
         )
     return f"""{gauge_txt}
 
-O que si se fixo é preparar e validar o deseño con datos reais agás os caudais:
+Por que non abonda: proba de potencia nas concas trazadas co modelo do terreo, con caudais
+simulados cun efecto coñecido.
 
 - **Concas.** Delimitáronse desde o modelo dixital do terreo Copernicus (200 m) {c["n"]}
   concas enteiras, sen aniñar, de 30 a 1 500 km² (mediana {num(c["area_km2_median"], 3)} km²),
@@ -906,7 +915,19 @@ def _resumo(res: dict) -> str:
         )
     )
     w = res.get("water")
-    if w:
+    cam = (w or {}).get("camels_es") or {}
+    if cam.get("versions"):
+        v = cam["versions"].get("landsat_long") or cam["versions"]["backdated"]
+        e, se = v["runoff_mm_per_10pts"]
+        items.append(
+            f"- **Auga.** Cos caudais reais de {cam['n_catchments']} concas galegas "
+            f"(CAMELS-ES, {cam['years'][0]}–{cam['years'][1]}) a estimación non informa: "
+            f"{num(e, 3)} mm/ano por 10 puntos de eucalipto, cun IC 95 % de "
+            f"{num(e - 1.96 * se, 3)} a {num(e + 1.96 * se, 3)}. O eucalipto apenas cambia "
+            "dentro das concas nos anos con caudais, e o mapa histórico con Landsat, que daría "
+            "ese cambio, non superou a validación (seccións 2 e 6)."
+        )
+    elif w:
         mde = pd.DataFrame(w["mde"])
         mde = mde[(mde["estimator"] == "TWFE") & (mde["change_scale"] == 1.0)]
         items.append(
@@ -1021,8 +1042,9 @@ def write_brief(res: dict, out_dir: str | Path) -> Path:
 
 > **Que é este informe.** Unha estimación con datos de satélite e rexistros públicos do
 > efecto das plantacións de eucalipto sobre o bosque autóctono e os incendios en Galicia.
-> Os mapas de especies adestráronse con etiquetas de OpenStreetMap, non co Mapa Forestal de
-> España nin co Inventario Forestal Nacional, que non eran accesibles desde este contorno.
+> Os mapas de especies adestráronse con etiquetas de OpenStreetMap depuradas, pseudoetiquetas
+> de eucalipto e o Mapa Forestal de España (MFE50, arredor de 1998), e compróbanse co MFE50 e
+> coas parcelas do Inventario Forestal Nacional (IFN3).
 > **Como se validou o mapa de eucalipto.** Case todas as etiquetas de eucalipto de
 > OpenStreetMap están nun cadro de 100 km do norte (A Coruña, Ferrol, Ortegal), e moitas das
 > de fóra teñen un comportamento invernal de frondosa caducifolia, é dicir, están mal
@@ -1038,7 +1060,9 @@ def write_brief(res: dict, out_dir: str | Path) -> Path:
 > (sección 2) é máis severa: a superficie total cadra, pero parcela a
 > parcela o acordo é baixo.
 > Os efectos causais dependen de supostos que se explican na sección 7. O efecto sobre a auga
-> **non se puido estimar** con datos reais; a sección 6 avalía se sería medible con aforos.
+> **non se puido medir**: hai caudais reais (CAMELS-ES), pero o eucalipto apenas cambia dentro
+> das concas nos anos con datos, e o mapa histórico con Landsat non superou a validación
+> (sección 6).
 
 ## Resumo
 
