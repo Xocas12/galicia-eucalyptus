@@ -68,6 +68,28 @@ GL.update(
         "2017": "2017",
         "2024": "2024",
         "subset": "subconxunto",
+        "accuracy": "exactitude global",
+        "euc_precision": "precisión eucalipto",
+        "euc_recall": "sensibilidade eucalipto",
+        "euc_f1_mfe": "F1 eucalipto",
+        "euc_f1_undisturbed": "F1 eucalipto (sen perturbación)",
+        "pine_f1": "F1 piñeiro",
+        "native_f1": "F1 frondosas autóctonas",
+        "Sentinel-2 2024": "Sentinel-2 2024",
+        "Sentinel-2 2017": "Sentinel-2 2017 (retrodatado)",
+        "Sentinel-2 2017 independent": "Sentinel-2 2017 (independente)",
+        "Landsat 1990": "Landsat 1990",
+        "Landsat 2000": "Landsat 2000",
+        "Landsat 2010": "Landsat 2010",
+        "Landsat 2017": "Landsat 2017",
+        "cover_version": "cuberta empregada",
+        "backdated": "Sentinel-2, 2017 retrodatado",
+        "independent": "Sentinel-2, 2017 independente",
+        "landsat_long": "historial Landsat 1990–2024",
+        "within_change_pts": "cambio do eucalipto dentro da conca (puntos)",
+        "runoff_mm_per_10pts": "escorrentía (mm/ano por 10 puntos)",
+        "low_flow_per_10pts": "caudal mínimo 7 días (mm/día por 10 puntos)",
+        "low_flow_se": "EE caudal mínimo",
         "epoch": "época",
         "cv_accuracy": "exactitude (validación cruzada)",
         "euc_f1": "F1 eucalipto (validación cruzada)",
@@ -259,22 +281,36 @@ def _landsat_section(bc: dict | None, li: dict | None) -> str:
             "ifn3_f1": [li[f"Landsat {e}"]["f1"] if li else np.nan for e in ep],
         }
     )
-    verdict = (
-        "**O mapa histórico supera a validación** e úsase na sección 6."
-        if bc["passed"]
-        else "**O mapa histórico non supera a validación, e non se usa.** Coas imaxes "
-        "Landsat de nivel 1 (reflectancia no alto da atmosfera, sen corrección atmosférica) e "
-        "poucas escenas por estación, o clasificador non separa o eucalipto o bastante: a "
-        "superficie non mostra tendencia e o «cambio» entre épocas é ruído. Para facelo ben "
-        "cómpren as imaxes Landsat de reflectancia de superficie (Colección 2), que non eran "
-        "accesibles desde este contorno."
+    c2 = bc.get("source") == "C2"
+    if bc["passed"]:
+        verdict = "**O mapa histórico supera a validación** e úsase na sección 6."
+    elif c2:
+        verdict = (
+            "**O mapa histórico non supera a validación, e non se usa.** Mesmo con "
+            "reflectancia de superficie e todas as escenas despexadas, Landsat a 30–60 m non "
+            "separa o eucalipto do piñeiro o bastante para datar o cambio: o «cambio» entre "
+            "épocas segue sendo maioritariamente ruído de clasificación."
+        )
+    else:
+        verdict = (
+            "**O mapa histórico non supera a validación, e non se usa.** Coas imaxes Landsat "
+            "de nivel 1 (reflectancia no alto da atmosfera, sen corrección atmosférica) e "
+            "poucas escenas por estación, o clasificador non separa o eucalipto o bastante."
+        )
+    source_txt = (
+        "Landsat 4–8 da Colección 2, nivel 2 (reflectancia de superficie, Microsoft Planetary "
+        "Computer): compostos mensuais de NDVI, NDMI e NBR con todas as escenas despexadas de "
+        "cada época de tres anos, cos mesmos trazos fenolóxicos ca os mapas de Sentinel-2"
+        if c2
+        else "Landsat 4–8 da Colección 1, nivel 1 (arquivo público de Google Cloud): "
+        "compostos estacionais de inverno e verán de NDVI, NDMI e NBR en catro épocas de tres "
+        "anos"
     )
     return f"""### Mapa histórico con Landsat, 1990–2017
 
-Para ter un historial de cuberta máis longo (sección 6) clasificáronse compostos estacionais
-Landsat 4–8 (arquivo público de Google Cloud; inverno e verán, NDVI, NDMI e NBR) en catro
-épocas de tres anos. Cada época ten o seu clasificador, adestrado en píxeles sen cambios
-desde 2001 (mesma clase nos dous mapas de Sentinel-2, sen perda de Hansen nin lume).
+Para ter un historial de cuberta máis longo (sección 6) clasificáronse imaxes {source_txt}.
+Cada época ten o seu clasificador, adestrado en píxeles sen cambios desde 2001 (mesma clase
+nos dous mapas de Sentinel-2, sen perda de Hansen nin lume).
 
 {_md_table(tab, 3)}
 
@@ -286,12 +322,62 @@ nova vén case sempre dunha corta, así que a proporción debería ser moito mai
 {verdict}"""
 
 
+def _mfe_section(mfe: dict | None, exp: dict | None) -> str:
+    if not mfe:
+        return ""
+    rows = []
+    for name, v in mfe.items():
+        if not isinstance(v, dict) or "all" not in v:
+            continue
+        a, u = v["all"], v["undisturbed"]
+        rows.append(
+            {
+                "map": name,
+                "accuracy": a["accuracy"],
+                "euc_precision": a["eucalyptus"]["precision"],
+                "euc_recall": a["eucalyptus"]["recall"],
+                "euc_f1_mfe": a["eucalyptus"]["f1"],
+                "euc_f1_undisturbed": u["eucalyptus"]["f1"],
+                "pine_f1": a["pine"]["f1"],
+                "native_f1": a["native"]["f1"],
+            }
+        )
+    tab = pd.DataFrame(rows)
+    ex = ""
+    if exp:
+        b, w = exp["baseline"], exp["with_mfe50"]
+        ex = f"""
+
+As etiquetas do MFE50 tamén se usan no adestramento (en píxeles sen perturbación desde 2001).
+Nun experimento por bloques de 10 km, adestrando nunha metade e avaliando na outra, melloraron o
+mapa: exactitude fronte ao MFE50 {num(b["mfe_accuracy"], 3)} → {num(w["mfe_accuracy"], 3)}, F1
+do eucalipto {num(b["mfe_all"]["f1"], 3)} → {num(w["mfe_all"]["f1"], 3)}, e F1 fronte ás
+parcelas do IFN3 {num(b["ifn3"]["f1"], 3)} → {num(w["ifn3"]["f1"], 3)}. Os mapas deste informe
+xa os inclúen; por iso a táboa de arriba está en parte dentro da mostra de adestramento."""
+    return f"""### Comprobación co Mapa Forestal de España (MFE50)
+
+O MFE50 de Galicia (MITECO, escala 1:50 000; base cartográfica do IFN3, arredor de 1997–1998)
+cobre todo o territorio e indica a formación forestal de cada polígono, así que permite
+avaliar os mapas píxel a píxel. Úsanse as formacións puras (eucaliptais, piñeirais, carballeiras
+e demais frondosas autóctonas), o monte desarborado como mato, os cultivos e o artificial; as
+mesturas exclúense, e cada polígono redúcese un píxel para non avaliar bordos. O MFE25 (base do
+IFN4, 2011) está detrás dun control anti-robots no servidor de descargas e non se usou.
+
+{_md_table(tab, 3, values=("map",))}
+
+A referencia é de arredor de 1998, así que parte do desacordo cos mapas recentes é cambio
+real; a columna «sen perturbación» limítase a píxeles sen corta nin lume rexistrados desde
+2001.{ex}"""
+
+
 def _reference_section(
     ref: dict | None,
     inv: dict | None = None,
     transfer_f1: float = float("nan"),
     landsat_inv: dict | None = None,
     backcast: dict | None = None,
+    mfe: dict | None = None,
+    mfe_exp: dict | None = None,
 ) -> str:
     parts = []
     if inv:
@@ -346,6 +432,9 @@ Que se conclúe:
 Consecuencia: as cifras de superficie son plausibles, pero a localización do eucalipto píxel a
 píxel é incerta. Os efectos estimados sobre os incendios están atenuados por este erro
 (sección 7).""")
+    msec = _mfe_section(mfe, mfe_exp)
+    if msec:
+        parts.insert(0, msec)
     lsec = _landsat_section(backcast, landsat_inv)
     if lsec:
         parts.append(lsec)
@@ -392,7 +481,46 @@ def _water_section(w: dict | None) -> str:
     ratio = float(e6["mean_estimate"].iloc[0] / e6["true_mm_per_10pts"].iloc[0])
     detectable = m79 <= 20
     g = w.get("gauges")
-    if g and "runoff_mm_per_10pts" in g:
+    cam = w.get("camels_es") or {}
+    if cam.get("versions"):
+        main = "landsat_long" if "landsat_long" in cam["versions"] else "backdated"
+        v = cam["versions"][main]
+        e, se = v["runoff_mm_per_10pts"]
+        lo, lse = v["low_flow_mm_day_per_10pts"]
+        tab = pd.DataFrame(
+            [
+                {
+                    "cover_version": k,
+                    "within_change_pts": x["within_change_mean_pts"],
+                    "runoff_mm_per_10pts": x["runoff_mm_per_10pts"][0],
+                    "se": x["runoff_mm_per_10pts"][1],
+                    "low_flow_per_10pts": x["low_flow_mm_day_per_10pts"][0],
+                    "low_flow_se": x["low_flow_mm_day_per_10pts"][1],
+                }
+                for k, x in cam["versions"].items()
+            ]
+        )
+        informative = 1.96 * se < 50
+        gauge_txt = f"""**Estimación con aforos reais (CAMELS-ES).** CAMELS-ES (Zenodo, CC BY 4.0) recolle
+caudais diarios, choiva e evapotranspiración de referencia (EMO-1) de estacións de aforo
+españolas. Úsanse as {cam["n_catchments"]} concas con polo menos o 80 % da superficie en Galicia,
+anos hidrolóxicos {cam["years"][0]}–{cam["years"][1]} ({num(cam["n_catchment_years"])}
+anos-conca; escorrentía media {num(cam["runoff_mean_mm"], 3)} mm/ano). Modelo de efectos fixos
+de conca e ano, con choiva, evapotranspiración e as outras cubertas como controis.
+
+{_md_table(tab, 3, values=("cover_version",))}
+
+Resultado principal: un aumento de 10 puntos de eucalipto cambia a escorrentía anual en
+{num(e, 3)} mm (IC 95 %: {num(e - 1.96 * se, 3)} a {num(e + 1.96 * se, 3)}) e o caudal
+mínimo de 7 días en {num(lo, 2)} mm/día (IC 95 %: {num(lo - 1.96 * lse, 2)} a
+{num(lo + 1.96 * lse, 2)}). """ + (
+            "O intervalo é estreito abondo para descartar efectos grandes."
+            if informative
+            else "**O intervalo é tan largo que a estimación non informa**: dentro de cada "
+            "conca o eucalipto apenas cambia nos anos con caudais, e sen un historial de "
+            "cuberta máis longo os aforos non poden medir o efecto."
+        )
+    elif g and "runoff_mm_per_10pts" in g:
         e, se = g["runoff_mm_per_10pts"]
         gauge_txt = (
             f"**Estimación con aforos reais** ({g['n']} estacións, {g['n_years']} anos-estación): "
@@ -963,7 +1091,7 @@ erro do mapa.
 
 {_md_table(areas["2017"][area_cols], 5, values=("name",))}
 
-{_reference_section(res.get("reference"), res.get("inventory"), sm["2024"]["north_transfer"]["euc_f1"], res.get("landsat_inventory"), (res.get("water") or {}).get("backcast"))}
+{_reference_section(res.get("reference"), res.get("inventory"), sm["2024"]["north_transfer"]["euc_f1"], res.get("landsat_inventory"), (res.get("water") or {}).get("backcast"), res.get("mfe"), res.get("mfe_experiment"))}
 
 ## 3. Perda de bosque autóctono
 

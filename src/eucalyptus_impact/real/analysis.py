@@ -34,7 +34,7 @@ from ..dynamic import COVER, estimate_components, project, scenario_contrasts
 from ..geo.grid import block_ids
 from ..geo.raster_ops import distance_to, focal_mean
 from ..validation.spatial_cv import SpatialBlockKFold
-from .common import GRID_1KM, INTERIM, log
+from .common import GRID_1KM, INTERIM, RAW, log
 from .layers import EUC, NATIVE, PINE, all_layers
 from .reference import (
     inventory_check,
@@ -521,6 +521,12 @@ def run_real(seed: int = 0) -> dict:
         "inventory_training", lambda: inventory_training_experiment(seed=seed)
     )
     res["water"] = _cached_json("water", lambda: water_analysis(seed=seed))
+    if (RAW / "mfe50").exists():
+        from .reference import mfe_check
+
+        res["mfe"] = _cached_json("mfe50_check", mfe_check)
+    exp = INTERIM / "mfe_label_experiment.json"
+    res["mfe_experiment"] = json.loads(exp.read_text()) if exp.exists() else None
     log.info("reference and water done")
     res["panel_summary"] = {
         "cells": len(cells),
