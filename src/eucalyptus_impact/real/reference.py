@@ -508,10 +508,10 @@ def landsat_inventory_check() -> dict:
     The plots date from around 1998, so the 2000 Landsat map should agree with them best; a
     steady fall in agreement after 2000 points to change since the survey rather than map error.
     """
-    from .landsat import EPOCHS, landsat_maps
+    from .landsat import EPOCHS, backcast_maps
 
     plots = inventory_plots(gbif_records())
-    lm = landsat_maps()
+    lm = backcast_maps()
     sp = np.load(INTERIM / "species.npz")
     maps = {f"Landsat {e}": lm[f"class40_{e}"] for e in EPOCHS}
     maps["Sentinel-2 2017"] = sp["class40_2017"]
@@ -526,4 +526,136 @@ def landsat_inventory_check() -> dict:
     out["plot_euc_share"] = float(
         (plots["plot_type"][plots["plot_type"] != "só mato"] == "eucalipto").mean()
     )
+    return out
+
+
+# ---------------------------------------------------------------- Mapa Forestal de España
+#
+# MFE50 for the four Galician provinces (MITECO, 1:50,000; the IFN3 cartographic base, so about
+# 1997-1998 in Galicia). Unlike the IFN3 plot lists it is wall to wall and gives each polygon's
+# forest formation, so it scores the maps pixel by pixel. The newer MFE25 (IFN4 base, 2011) sits
+# behind an anti-bot challenge on the download server; put its shapefile in data/raw/mfe25/ and
+# `mfe_reference("mfe25")` will read it the same way.
+
+MFE_PROVINCES = (15, 27, 32, 36)
+NATIVE_FORMATIONS = (
+    "Robledal",
+    "Melojar",
+    "Castañar",
+    "Bosques mixtos de frondosas",
+    "Bosques ribereños",
+    "Abedular",
+    "Encinar",
+    "Hayedo",
+    "Alcornocal",
+    "Acebeda",
+    "Tejeda",
+)
+
+
+def mfe_class(formation: str | None, use: str | None) -> int:
+    """MFE polygon -> map class (EUC 0, PINE 1, NATIVE 2, SHRUB 3, AGRI 4, OTHER 5; 255 =
+    excluded). Mixed and sparse formations are excluded: they have no single pixel class."""
+    f = formation or ""
+    if f == "Eucaliptales":
+        return 0
+    if f.startswith("Pinares"):
+        return 1
+    if any(f.startswith(n) for n in NATIVE_FORMATIONS):
+        return 2
+    if use == "Desarbolado":
+        return 3
+    if use == "Cultivos":
+        return 4
+    if use in ("Artificial", "Agua"):
+        return 5
+    return 255
+
+
+def mfe_reference(edition: str = "mfe50") -> np.ndarray:
+    """Rasterised MFE classes on the 40 m grid (255 = no usable reference), cached."""
+    import geopandas as gpd
+    from rasterio.features import rasterize
+
+    from .common import RAW, transform_of
+
+    cache = INTERIM / f"{edition}_ref40.npy"
+    if cache.exists():
+        return np.load(cache)
+    d = RAW / edition
+    files = sorted(d.glob("*.shp"))
+    if not files:
+        raise FileNotFoundError(d)
+    shapes = []
+    for f in files:
+        g = gpd.read_file(f).to_crs(GRID_40M.crs)
+        g["cls"] = [mfe_class(a, b) for a, b in zip(g["NOM_FORARB"], g["USOS_GENER"], strict=True)]
+        g = g[g["cls"] < 255]
+        # Shrink each polygon by one pixel so mixed edge pixels are not scored.
+        g["geometry"] = g.geometry.buffer(-GRID_40M.resolution_m)
+        g = g[~g.geometry.is_empty]
+        shapes += list(zip(g.geometry, g["cls"].astype(int), strict=True))
+    ref = rasterize(
+        shapes, out_shape=GRID_40M.shape, transform=transform_of(GRID_40M), fill=255, dtype="uint8"
+    )
+    np.save(cache, ref)
+    return ref
+
+
+def _class_scores(ref: np.ndarray, pred: np.ndarray, mask: np.ndarray) -> dict:
+    ok = mask & (ref < 6) & (pred < 6)
+    r, p = ref[ok].astype(int), pred[ok].astype(int)
+    out = {"n_pixels": int(ok.sum()), "accuracy": float((r == p).mean())}
+    for k, name in enumerate(("eucalyptus", "pine", "native", "shrub", "agriculture", "other")):
+        tp = int(((p == k) & (r == k)).sum())
+        prec = tp / max(int((p == k).sum()), 1)
+        rec = tp / max(int((r == k).sum()), 1)
+        out[name] = {
+            "precision": prec,
+            "recall": rec,
+            "f1": 2 * prec * rec / max(prec + rec, 1e-9),
+            "ref_share": float((r == k).mean()),
+            "map_share": float((p == k).mean()),
+        }
+    return out
+
+
+def mfe_check(edition: str = "mfe50") -> dict:
+    """Score every map against the MFE: all reference pixels, and pixels with no recorded
+    disturbance since 2001 (no Hansen loss, no EFFIS fire), where the 1998 reference is most
+    likely still true. The Landsat 2000 epoch is the date-matched comparison for the MFE50."""
+    from .landsat import EPOCHS, backcast_maps
+
+    ref = mfe_reference(edition)
+    aoi = np.load(INTERIM / "aoi.npz")["mask40"] > 0
+    ly = np.load(INTERIM / "hansen.npz")["lossyear40"]
+    ef = np.load(INTERIM / "effis.npz")
+    burnt = np.zeros(ly.shape, bool)
+    for y in range(2018, 2024):
+        burnt |= ef[f"burned40_{y}"]
+    stable = aoi & (ly == 0) & ~burnt
+    sp = np.load(INTERIM / "species.npz")
+    maps = {
+        "Sentinel-2 2024": sp["class40_2024"],
+        "Sentinel-2 2017": sp["class40_2017"],
+        "Sentinel-2 2017 independent": sp["class40_2017_independent"],
+    }
+    try:
+        bm = backcast_maps()
+        maps.update({f"Landsat {e}": bm[f"class40_{e}"] for e in EPOCHS})
+    except FileNotFoundError:
+        pass
+    out = {"edition": edition, "ref_pixels": int((aoi & (ref < 6)).sum())}
+    for name, m in maps.items():
+        out[name] = {
+            "all": _class_scores(ref, m, aoi),
+            "undisturbed": _class_scores(ref, m, stable),
+        }
+        log.info(
+            "MFE %s vs %s: eucalyptus F1 %.2f (undisturbed %.2f)",
+            edition,
+            name,
+            out[name]["all"]["eucalyptus"]["f1"],
+            out[name]["undisturbed"]["eucalyptus"]["f1"],
+        )
     return out

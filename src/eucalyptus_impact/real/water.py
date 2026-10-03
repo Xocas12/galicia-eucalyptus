@@ -602,9 +602,9 @@ def build_panel(info: pd.DataFrame, members, version: str = "backdated") -> pd.D
 def landsat_fractions(members: list[np.ndarray]) -> pd.DataFrame:
     """Eucalyptus, pine and native share per catchment in each Landsat epoch (classified pixels
     only)."""
-    from .landsat import EPOCHS, landsat_maps
+    from .landsat import EPOCHS, backcast_maps
 
-    lm = landsat_maps()
+    lm = backcast_maps()
     ny, nx = GRID_HYDRO.shape
     hr = (np.arange(ny * AGG) // AGG)[:, None] * nx + (np.arange(nx * AGG) // AGG)[None, :]
     lab = np.zeros(ny * nx, np.int32)
@@ -683,6 +683,168 @@ def long_history_study(info, members, seed: int = 0, reps: int = 200) -> dict:
     }
 
 
+# ---------------------------------------------------------------- CAMELS-ES
+
+CAMELS_DIR = RAW / "camels_es" / "v110"
+CAMELS_URL = "https://zenodo.org/api/records/15040948/files/CAMELS-ES_v110.zip/content"
+
+
+def fetch_camels_es() -> None:
+    """Download and unpack CAMELS-ES v1.1.0 (CC BY 4.0, Zenodo record 15040948)."""
+    import zipfile
+
+    from .common import download
+
+    if (CAMELS_DIR / "attributes").exists():
+        return
+    z = download(CAMELS_URL, RAW / "camels_es" / "CAMELS-ES_v110.zip")
+    with zipfile.ZipFile(z) as zf:
+        members = [m for m in zf.namelist() if "/netcdf/" not in m]
+        zf.extractall(RAW / "camels_es", members)
+
+
+def camels_es_catchments(min_galicia: float = 0.8):
+    """CAMELS-ES catchments mostly inside the mapped area, as 200 m grid cells.
+
+    Catchments come from the dataset's own basin polygons (no DEM snapping). Only those with at
+    least `min_galicia` of their area inside Galicia are kept, since the species maps stop at
+    the border. Nested catchments (e.g. Begonte inside Lugo) are kept; SEs are clustered by
+    catchment, which does not account for their overlap.
+    """
+    import geopandas as gpd
+    from rasterio.features import rasterize
+
+    from .common import transform_of
+
+    shp = gpd.read_file(CAMELS_DIR / "shapefiles" / "camelses" / "camelses_basin_shapes.shp")
+    shp = shp.to_crs(GRID_HYDRO.crs)
+    attr = pd.read_csv(CAMELS_DIR / "attributes" / "camelses" / "attributes_other_camelses.csv")
+    shp = shp.merge(attr, on="gauge_id")
+    ny, nx = GRID_HYDRO.shape
+    aoi = np.load(INTERIM / "aoi.npz")["mask40"][: ny * AGG, : nx * AGG]
+    gal = (aoi.reshape(ny, AGG, nx, AGG) > 0).mean(axis=(1, 3)).ravel() > 0.5
+    rows, members = [], []
+    for _, r in shp.iterrows():
+        m = rasterize(
+            [(r.geometry, 1)], out_shape=(ny, nx), transform=transform_of(GRID_HYDRO), fill=0
+        ).ravel()
+        idx = np.flatnonzero(m)
+        full = r.geometry.area / (HYDRO_RES**2)
+        if len(idx) == 0 or len(idx) < 0.9 * full:
+            continue  # catchment extends beyond the grid
+        share = float(gal[idx].mean())
+        if share < min_galicia:
+            continue
+        c = r.geometry.centroid
+        rows.append(
+            {
+                "gauge_id": r["gauge_id"],
+                "name": r["gauge_name"],
+                "area_km2": float(r["area"]),
+                "galicia_share": share,
+                "cx": c.x,
+                "cy": c.y,
+            }
+        )
+        members.append(idx)
+    info = pd.DataFrame(rows).reset_index(drop=True)
+    info["catchment"] = np.arange(len(info))
+    return info, members
+
+
+def camels_es_flows(info: pd.DataFrame, min_days: int = 330) -> pd.DataFrame:
+    """Water-year runoff and 7-day low flow (mm), with precipitation and reference ET (EMO-1).
+
+    CAMELS-ES streamflow is already specific discharge (mm/day). Years with fewer than
+    `min_days` daily flows are dropped.
+    """
+    out = []
+    for _, r in info.iterrows():
+        ts = pd.read_csv(
+            CAMELS_DIR / "timeseries" / "csv" / "camelses" / f"{r['gauge_id']}.csv",
+            usecols=["date", "streamflow", "pr_emo1", "e0_emo1"],
+            parse_dates=["date"],
+        )
+        ts["wy"] = ts["date"].dt.year + (ts["date"].dt.month >= 10).astype(int)
+        for wy, g in ts.groupby("wy"):
+            q = g["streamflow"]
+            if q.notna().sum() < min_days or g["pr_emo1"].notna().sum() < min_days:
+                continue
+            out.append(
+                {
+                    "catchment": int(r["catchment"]),
+                    "year": int(wy),
+                    "runoff": float(q.mean() * 365.25),
+                    "low_flow": float(q.rolling(7).mean().min()),
+                    "precip": float(g["pr_emo1"].mean() * 365.25),
+                    "pet": float(g["e0_emo1"].mean() * 365.25),
+                }
+            )
+    return pd.DataFrame(out)
+
+
+def camels_es_analysis(long: bool = False) -> dict:
+    """Runoff and low-flow effects of eucalyptus on the CAMELS-ES catchments of Galicia.
+
+    Two-way fixed effects (catchment and year) with precipitation, reference ET and the other
+    forest covers as controls, plus the per-catchment precipitation-slope variant and a
+    Budyko-Fu fit. Run with each Sentinel-2 map version (backdated and independent 2017) and,
+    if `long`, with the 1990-2024 Landsat-extended cover paths.
+    """
+    from ..models.hydrology import fit_budyko, twfe
+
+    if not (CAMELS_DIR / "attributes").exists():
+        return {}
+    info, members = camels_es_catchments()
+    flows = camels_es_flows(info)
+    years = range(int(flows["year"].min()), int(flows["year"].max()) + 1)
+    versions = {
+        "backdated": cover_paths(members, "backdated", years),
+        "independent": cover_paths(members, "independent", years),
+    }
+    if long:
+        versions["landsat_long"] = cover_paths_long(members, years)
+    ctrl = ["precip", "pet", "f_pine", "f_native_broadleaf"]
+    res = {
+        "n_catchments": len(info),
+        "years": [int(flows["year"].min()), int(flows["year"].max())],
+        "n_catchment_years": len(flows),
+        "catchments": info.drop(columns=["cx", "cy"]).to_dict(orient="records"),
+        "runoff_mean_mm": float(flows["runoff"].mean()),
+        "versions": {},
+    }
+    for name, cov in versions.items():
+        gp = flows.merge(cov, on=["catchment", "year"])
+        d = gp.groupby("catchment")["f_eucalyptus"].agg(lambda s: s.max() - s.min())
+        fe = twfe(gp, "runoff", "f_eucalyptus", "catchment", "year", ctrl)
+        fs = twfe_unit_slopes(gp, "runoff", "f_eucalyptus", ["pet", "f_pine", "f_native_broadleaf"])
+        lo = twfe(gp, "low_flow", "f_eucalyptus", "catchment", "year", ctrl)
+        try:
+            bud = fit_budyko(gp)
+            # A Fu parameter at or below 1, or a zero SE, means the fit did not converge to a
+            # physical solution; report it as invalid rather than as an estimate.
+            if bud["w0"][0] <= 1 or not all(v[1] > 0 for v in bud.values()):
+                bud = {"invalid": True, **{k: list(v) for k, v in bud.items()}}
+        except Exception as e:
+            bud = {"invalid": True, "error": str(e)}
+        res["versions"][name] = {
+            "within_change_mean_pts": float(100 * d.mean()),
+            "euc_mean": float(gp["f_eucalyptus"].mean()),
+            "runoff_mm_per_10pts": [fe.estimate * 0.1, fe.se * 0.1],
+            "runoff_slopes_mm_per_10pts": [fs.estimate * 0.1, fs.se * 0.1],
+            "low_flow_mm_day_per_10pts": [lo.estimate * 0.1, lo.se * 0.1],
+            "budyko": bud,
+        }
+        log.info(
+            "CAMELS-ES %s: %d catchments, runoff %.1f mm/10pts (SE %.1f)",
+            name,
+            len(info),
+            fe.estimate * 0.1,
+            fe.se * 0.1,
+        )
+    return res
+
+
 def water_analysis(seed: int = 0, reps: int = 200) -> dict:
     """Real gauge estimate when gauges are supplied; power study on real catchments always."""
     from ..models.hydrology import fit_budyko, twfe
@@ -714,12 +876,13 @@ def water_analysis(seed: int = 0, reps: int = 200) -> dict:
     out["power"] = ps.to_dict(orient="records")
     out["mde"] = minimum_detectable(ps).to_dict(orient="records")
     out["power_map_error"] = ps_err.to_dict(orient="records")
-    if (INTERIM / "landsat_maps_v2.npz").exists():
+    if (INTERIM / "landsat_maps_v2.npz").exists() or (INTERIM / "landsat_maps_c2.npz").exists():
         from .landsat import backcast_validation
 
         out["backcast"] = backcast_validation()
         if out["backcast"]["passed"]:
             out["long"] = long_history_study(info, members, seed=seed, reps=reps)
+    out["camels_es"] = camels_es_analysis(long=bool(out.get("backcast", {}).get("passed", False)))
 
     g = load_gauges()
     if g is None:

@@ -326,7 +326,7 @@ def backcast_validation(min_f1: float = 0.7, min_loss_ratio: float = 2.0) -> dic
     (planting follows a clear-cut) clearly more often than pixels whose class did not change.
     Without the second, map-to-map "change" is classification noise.
     """
-    m = landsat_maps()
+    m = backcast_maps()
     aoi = np.load(INTERIM / "aoi.npz")["mask40"] > 0
     ly = np.load(INTERIM / "hansen.npz")["lossyear40"]
     a, b = m["class40_2000"], m["class40_2010"]
@@ -345,4 +345,219 @@ def backcast_validation(min_f1: float = 0.7, min_loss_ratio: float = 2.0) -> dic
         "same_with_loss": r_same,
         "loss_ratio": ratio,
         "passed": bool(min(f1.values()) >= min_f1 and ratio >= min_loss_ratio),
+        "source": "C2" if (INTERIM / "landsat_maps_c2.npz").exists() else "C1",
     }
+
+
+# ---------------------------------------------------------------- Collection 2 (surface refl.)
+#
+# The Level-1 back-cast above failed validation. This version uses Landsat Collection 2 Level-2
+# surface reflectance from Microsoft Planetary Computer and builds, per epoch, the same monthly
+# NDVI/NDMI/NBR cube as the Sentinel-2 maps (October-September order, all clear scenes of the
+# three-year window pooled by calendar month), so the species classifier and its harmonic
+# features carry over unchanged.
+
+PC_STAC = "https://planetarycomputer.microsoft.com/api/stac/v1"
+C2_PLATFORMS = ("landsat-4", "landsat-5", "landsat-7", "landsat-8")
+C2_MONTHS = [10, 11, 12, 1, 2, 3, 4, 5, 6, 7, 8, 9]  # cube order, as the Sentinel-2 periods
+C2_SCALE, C2_OFFSET = 2.75e-5, -0.2
+# QA_PIXEL bits: 0 fill, 1 dilated cloud, 2 cirrus, 3 cloud, 4 cloud shadow, 5 snow.
+C2_BAD_BITS = (1 << 0) | (1 << 1) | (1 << 2) | (1 << 3) | (1 << 4) | (1 << 5)
+
+
+def c2_items(epoch: str, max_cloud: float = 60, per_month: int = 16) -> list:
+    """Clear Collection 2 Level-2 scenes over Galicia for the epoch window, by calendar month.
+
+    Keeps the four Galicia path/rows, and per calendar month at most `per_month` scenes, the
+    least cloudy first (Landsat 7 after the May 2003 scan-line failure ranked last).
+    """
+    import planetary_computer as pc
+    import pystac_client
+
+    y0, y1 = EPOCHS[epoch]
+    cat = pystac_client.Client.open(PC_STAC, modifier=pc.sign_inplace)
+    search = cat.search(
+        collections=["landsat-c2-l2"],
+        bbox=[-9.35, 41.8, -6.7, 43.8],
+        datetime=f"{y0 - 1}-10-01/{y1}-09-30",
+        query={"eo:cloud_cover": {"lt": max_cloud}, "platform": {"in": list(C2_PLATFORMS)}},
+    )
+    items = [
+        it
+        for it in search.items()
+        if (int(it.properties["landsat:wrs_path"]), int(it.properties["landsat:wrs_row"]))
+        in PATH_ROWS
+    ]
+    by_month: dict[int, list] = {}
+    for it in items:
+        d = pd.Timestamp(it.properties["datetime"]).tz_localize(None)
+        slc_off = it.properties["platform"] == "landsat-7" and d >= pd.Timestamp("2003-06-01")
+        it.properties["_rank"] = it.properties["eo:cloud_cover"] + 100 * slc_off
+        by_month.setdefault(d.month, []).append(it)
+    return {
+        m: sorted(v, key=lambda i: i.properties["_rank"])[:per_month] for m, v in by_month.items()
+    }
+
+
+def c2_scene_indices(item, factor: int = 2):
+    """NDVI, NDMI, NBR (3, h, w) at 60 m (overview `factor` 2) from surface reflectance."""
+    import planetary_computer as pc
+    import rasterio
+
+    item = pc.sign(item)
+    refl, tr, crs = {}, None, None
+    for key in ("red", "nir08", "swir16", "swir22", "qa_pixel"):
+        href = item.assets[key].href
+        for attempt in range(4):
+            try:
+                with rasterio.open(href) as src:
+                    shape = (src.height // factor, src.width // factor)
+                    a = src.read(1, out_shape=shape)
+                    if tr is None:
+                        tr = src.transform * src.transform.scale(
+                            src.width / shape[1], src.height / shape[0]
+                        )
+                        crs = src.crs
+                break
+            except Exception:
+                if attempt == 3:
+                    raise
+                time.sleep(3 * (attempt + 1))
+                item = pc.sign(item)
+                href = item.assets[key].href
+        refl[key] = a
+    bad = (refl.pop("qa_pixel").astype("uint16") & C2_BAD_BITS) > 0
+    r = {
+        k: np.where((v > 0) & ~bad, v.astype("float32") * C2_SCALE + C2_OFFSET, np.nan)
+        for k, v in refl.items()
+    }
+    with np.errstate(invalid="ignore", divide="ignore"):
+        nd = lambda a, b: (a - b) / (a + b)  # noqa: E731
+        out = np.stack(
+            [nd(r["nir08"], r["red"]), nd(r["nir08"], r["swir16"]), nd(r["nir08"], r["swir22"])]
+        )
+    out[(out < -1) | (out > 1)] = np.nan
+    return out, tr, crs
+
+
+def _composite(items: list, threads: int = 4) -> np.ndarray:
+    """Per-pixel median of the scenes' index grids (row blocks from a disk memmap)."""
+    ny, nx = GRID_40M.shape
+    tmp = INTERIM / "landsat_c2_tmp.f16"
+    stack = np.memmap(tmp, dtype="float16", mode="w+", shape=(len(items), 3, ny, nx))
+
+    def work(i_it):
+        i, it = i_it
+        try:
+            stack[i] = _to_grid(*c2_scene_indices(it))
+            return True
+        except Exception as e:  # a failed read leaves the scene out
+            log.info("landsat C2 scene failed %s: %s", it.id, e)
+            stack[i] = np.nan
+            return False
+
+    with ThreadPoolExecutor(threads) as ex:
+        ok = list(ex.map(work, enumerate(items)))
+    stack.flush()
+    out = np.full((3, ny, nx), np.nan, "float16")
+    for r0 in range(0, ny, 300):
+        r1 = min(ny, r0 + 300)
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            out[:, r0:r1] = np.nanmedian(stack[:, :, r0:r1].astype("float32"), axis=0)
+    stack = None  # release the memmap before deleting its file
+    tmp.unlink()
+    return out, sum(ok)
+
+
+def c2_cube(epoch: str) -> np.memmap:
+    """(12, 3, ny, nx) float16 monthly NDVI/NDMI/NBR cube for one epoch, cached on disk."""
+    ny, nx = GRID_40M.shape
+    path = INTERIM / f"landsat_c2_{epoch}.f16"
+    done = INTERIM / f"landsat_c2_{epoch}.done"
+    shape = (12, 3, ny, nx)
+    if done.exists():
+        return np.memmap(path, dtype="float16", mode="r", shape=shape)
+    by_month = c2_items(epoch)
+    cube = np.memmap(path, dtype="float16", mode="w+", shape=shape)
+    for k, month in enumerate(C2_MONTHS):
+        items = by_month.get(month, [])
+        t0 = time.time()
+        if items:
+            cube[k], n_ok = _composite(items)
+        else:
+            cube[k], n_ok = np.nan, 0
+        cube.flush()
+        log.info(
+            "landsat C2 %s month %02d: %d/%d scenes, %.0f%% valid, %.0fs",
+            epoch,
+            month,
+            n_ok,
+            len(items),
+            100 * np.isfinite(cube[k, 0]).mean(),
+            time.time() - t0,
+        )
+    done.write_text("ok")
+    return np.memmap(path, dtype="float16", mode="r", shape=shape)
+
+
+@cached_npz("landsat_maps_c2")
+def landsat_maps_c2(per_class: int = 20_000, seed: int = 0, n_folds: int = 5):
+    """Per-epoch class maps from the Collection 2 monthly cubes (same scheme as landsat_maps).
+
+    Features are the Sentinel-2 ones (harmonic phenology plus gap-filled monthly values);
+    training pixels are the confident, undisturbed Sentinel-2 pixels (stable_training_mask).
+    """
+    from sklearn.metrics import accuracy_score, f1_score
+
+    from ..geo.grid import block_ids
+    from ..validation.spatial_cv import SpatialBlockKFold
+    from .species import _pixels_features, make_classifier, sample_training
+
+    sp = np.load(INTERIM / "species.npz")
+    aoi = np.load(INTERIM / "aoi.npz")["mask40"].astype(bool)
+    lab = np.where(stable_training_mask() & aoi, sp["class40_2024"], 255).astype("uint8")
+    rows0, cols0, y0 = sample_training(lab, per_class, seed)
+    blocks0 = block_ids(GRID_40M, 20)[rows0, cols0]
+    ny, nx = GRID_40M.shape
+    out = {}
+    for epoch in EPOCHS:
+        cube = c2_cube(epoch)
+        X = _pixels_features(cube, rows0, cols0)
+        ok = np.isfinite(X).sum(1) >= X.shape[1] // 2
+        X, y, blocks = X[ok], y0[ok], blocks0[ok]
+        cvp = np.empty_like(y)
+        for tr, te in SpatialBlockKFold(n_folds, seed).split(groups=blocks):
+            cvp[te] = make_classifier(seed).fit(X[tr], y[tr]).predict(X[te])
+        out[f"cv_accuracy_{epoch}"] = np.array(accuracy_score(y, cvp))
+        out[f"cv_f1_{epoch}"] = np.array(
+            f1_score(y, cvp, labels=range(6), average=None, zero_division=0)
+        )
+        model = make_classifier(seed).fit(X, y)
+        cls = np.full((ny, nx), 255, "uint8")
+        for r0 in range(0, ny, 160):
+            rr, cc = np.nonzero(aoi[r0 : r0 + 160])
+            if len(rr) == 0:
+                continue
+            rr = rr + r0
+            Xe = _pixels_features(cube, rr, cc)
+            good = np.isfinite(Xe).sum(1) >= Xe.shape[1] // 2
+            if good.any():
+                cls[rr[good], cc[good]] = model.predict(Xe[good])
+        out[f"class40_{epoch}"] = cls
+        v = cls[aoi]
+        log.info(
+            "landsat C2 %s: CV accuracy %.3f, eucalyptus F1 %.2f, eucalyptus %.0f kha",
+            epoch,
+            out[f"cv_accuracy_{epoch}"],
+            out[f"cv_f1_{epoch}"][0],
+            (v == 0).sum() * 0.16 / 1e3,
+        )
+    return out
+
+
+def backcast_maps() -> dict:
+    """The best available back-cast: Collection 2 if built, else the Level-1 one."""
+    if (INTERIM / "landsat_maps_c2.npz").exists():
+        return landsat_maps_c2()
+    return landsat_maps()
