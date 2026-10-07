@@ -538,38 +538,85 @@ def landsat_inventory_check() -> dict:
 # `mfe_reference("mfe25")` will read it the same way.
 
 MFE_PROVINCES = (15, 27, 32, 36)
-NATIVE_FORMATIONS = (
-    "Robledal",
-    "Melojar",
-    "Castañar",
-    "Bosques mixtos de frondosas",
-    "Bosques ribereños",
-    "Abedular",
-    "Encinar",
-    "Hayedo",
-    "Alcornocal",
-    "Acebeda",
-    "Tejeda",
+
+#: Column holding the forest formation, by edition. MFE50 and MFE25 do not agree, and reading
+#: the wrong one raises KeyError rather than mislabelling, which is how this was found.
+MFE_FORMATION_FIELDS = ("NOM_FORARB", "FormArbol")
+#: Column holding the land use, same story.
+MFE_USE_FIELDS = ("USOS_GENER", "UsoMFE")
+
+#: Native broadleaf and oak formations, as accent-free lower-case stems.
+#:
+#: Stems, not full names, because the two editions differ in number and in how much of the
+#: species list they append: MFE50 writes "Robledal", MFE25 "Robledales de Q. robur y/o Q.
+#: petraea"; MFE50 "Bosques ribereños", MFE25 "Bosque ribereño". Both numbers are listed where
+#: the noun itself is pluralised, since a prefix of the singular does not cover the plural.
+NATIVE_FORMATION_STEMS = (
+    "robledal",
+    "melojar",
+    "castanar",
+    "bosques mixtos de frondosas",
+    "bosque riberen",
+    "bosques riberen",
+    "abedular",
+    "encinar",
+    "hayedo",
+    "alcornocal",
+    "acebeda",
+    "tejeda",
 )
+
+#: Pine stem. Covers "Pinares de ..." (MFE50) and "Pinar de ..." (MFE25); three of the four
+#: Galician pine formations are singular in MFE25 and used to be dropped.
+PINE_FORMATION_STEM = "pinar"
+
+#: Eucalyptus stem, for the same reason.
+EUCALYPTUS_FORMATION_STEM = "eucaliptal"
+
+
+def _fold(text: str | None) -> str:
+    """Lower-case and strip accents, so a stem match does not depend on the edition's spelling."""
+    import unicodedata
+
+    stripped = unicodedata.normalize("NFKD", text or "")
+    return "".join(c for c in stripped if not unicodedata.combining(c)).casefold().strip()
 
 
 def mfe_class(formation: str | None, use: str | None) -> int:
     """MFE polygon -> map class (EUC 0, PINE 1, NATIVE 2, SHRUB 3, AGRI 4, OTHER 5; 255 =
-    excluded). Mixed and sparse formations are excluded: they have no single pixel class."""
-    f = formation or ""
-    if f == "Eucaliptales":
+    excluded). Mixed and sparse formations are excluded: they have no single pixel class.
+
+    Matching is on accent-free lower-case stems, because MFE50 and MFE25 differ in number
+    ("Pinares de ..." against "Pinar de ...") and in how much of the species list they append.
+    An exact match silently dropped 174,475 ha of pine and 21,391 ha of riparian forest from
+    the MFE25 reference.
+    """
+    f = _fold(formation)
+    u = _fold(use)
+    if f.startswith(EUCALYPTUS_FORMATION_STEM):
         return 0
-    if f.startswith("Pinares"):
+    if f.startswith(PINE_FORMATION_STEM):
         return 1
-    if any(f.startswith(n) for n in NATIVE_FORMATIONS):
+    if any(f.startswith(stem) for stem in NATIVE_FORMATION_STEMS):
         return 2
-    if use == "Desarbolado":
+    if u == "desarbolado":
         return 3
-    if use == "Cultivos":
+    if u == "cultivos":
         return 4
-    if use in ("Artificial", "Agua"):
+    if u in ("artificial", "agua"):
         return 5
     return 255
+
+
+def _mfe_column(frame, candidates: tuple[str, ...], edition: str) -> str:
+    """The first of `candidates` present in `frame`, or a failure naming what was there."""
+    for name in candidates:
+        if name in frame.columns:
+            return name
+    raise KeyError(
+        f"{edition}: none of {list(candidates)} is a column of the shapefile. "
+        f"It has {sorted(frame.columns)[:12]}..."
+    )
 
 
 def mfe_reference(edition: str = "mfe50") -> np.ndarray:
@@ -589,7 +636,9 @@ def mfe_reference(edition: str = "mfe50") -> np.ndarray:
     shapes = []
     for f in files:
         g = gpd.read_file(f).to_crs(GRID_40M.crs)
-        g["cls"] = [mfe_class(a, b) for a, b in zip(g["NOM_FORARB"], g["USOS_GENER"], strict=True)]
+        fcol = _mfe_column(g, MFE_FORMATION_FIELDS, edition)
+        ucol = _mfe_column(g, MFE_USE_FIELDS, edition)
+        g["cls"] = [mfe_class(a, b) for a, b in zip(g[fcol], g[ucol], strict=True)]
         g = g[g["cls"] < 255]
         # Shrink each polygon by one pixel so mixed edge pixels are not scored.
         g["geometry"] = g.geometry.buffer(-GRID_40M.resolution_m)
