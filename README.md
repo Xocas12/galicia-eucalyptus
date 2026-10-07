@@ -15,13 +15,13 @@ to **native forest**, **wildfire** and **water**, and what alternative forest pl
 > attenuates every estimate that uses the map. Numbers from the synthetic runs are properties of
 > the methods, not facts about Galicia.
 
-Self-contained subproject: it shares nothing with `gosplan/` at the repository root and has its own
-`pyproject.toml`, tests and virtual environment.
+Self-contained: one `pyproject.toml`, one test suite, one virtual environment. The synthetic
+end-to-end run is pure numpy and scikit-learn; the real-data ingestion lives behind the
+optional `geo` extra, so the pipeline is runnable without any geospatial stack installed.
 
 ## Quickstart
 
 ```bash
-cd galicia-eucalyptus
 uv venv && uv pip install -e '.[dev]'          # add '.[geo]' for real-data ingestion
 .venv/bin/pytest                                # 43 tests, ~4 min
 .venv/bin/euc run --config configs/fast.yaml    # 4 km smoke run, ~1 min  -> outputs/fast/

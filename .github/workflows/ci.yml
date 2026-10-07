@@ -1,0 +1,80 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv python install 3.11
+      - name: ruff check
+        run: uv run --with 'ruff>=0.6' ruff check .
+      - name: ruff format --check
+        run: uv run --with 'ruff>=0.6' ruff format --check .
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv python install 3.11
+      - name: install
+        # The dev extra only. It carries pyproj, so the coordinate-transform tests run; the
+        # heavy geo stack (rasterio, geopandas, stackstac) stays in the optional `geo` extra.
+        # The one test that needs geopandas skips itself when it is absent.
+        run: uv pip install --system -e '.[dev]'
+      - name: pytest
+        run: pytest -ra -q
+
+  smoke:
+    # The fast config is a 4 km synthetic end-to-end run. It is the cheapest check that the
+    # pipeline still produces a report rather than only that its parts import.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - run: uv python install 3.11
+      - run: uv pip install --system -e '.[dev]'
+      - name: end-to-end smoke run
+        run: euc run --config configs/fast.yaml
+      - name: the run must have written a report
+        run: |
+          set -euo pipefail
+          out=$(python - <<'PY'
+          import pathlib, sys, yaml
+          cfg = yaml.safe_load(open("configs/fast.yaml"))
+          print(cfg.get("output_dir", "outputs/fast"))
+          PY
+          )
+          test -s "$out/report.md" || { echo "no report.md under $out"; ls -R "$out" || true; exit 1; }
+          test -s "$out/metrics.json" || { echo "no metrics.json under $out"; exit 1; }
+          echo "report.md: $(wc -l < "$out/report.md") lines"
+
+  ci-ok:
+    # Single required check, so branch protection does not have to list every job.
+    needs: [lint, test, smoke]
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: fail if any job did not succeed
+        run: |
+          echo "lint=${{ needs.lint.result }} test=${{ needs.test.result }} smoke=${{ needs.smoke.result }}"
+          [ "${{ needs.lint.result }}" = "success" ] || exit 1
+          [ "${{ needs.test.result }}" = "success" ] || exit 1
+          [ "${{ needs.smoke.result }}" = "success" ] || exit 1

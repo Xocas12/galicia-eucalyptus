@@ -25,7 +25,10 @@ geo = [
     "xarray>=2024.1",
     "requests>=2.31",
 ]
-dev = ["pytest>=8.0", "ruff>=0.6"]
+# pyproj is here, not only in `geo`, because two tests exercise the real coordinate
+# transforms (water gauges, pixel lookup) and would otherwise fail rather than skip.
+# It is a small self-contained wheel; the heavy geo stack stays optional.
+dev = ["pytest>=8.0", "ruff>=0.6", "pyproj>=3.6"]
 
 [project.scripts]
 euc = "eucalyptus_impact.cli:main"
