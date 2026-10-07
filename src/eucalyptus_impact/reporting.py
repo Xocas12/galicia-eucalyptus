@@ -455,7 +455,9 @@ def write_report(res: dict, out_dir: str | Path) -> Path:
         .get("sensitivity", pd.DataFrame())
         .to_dict(orient="records"),
     }
-    (out / "metrics.json").write_text(json.dumps(metrics, indent=2, default=float))
+    (out / "metrics.json").write_text(
+        json.dumps(metrics, indent=2, default=float), encoding="utf-8"
+    )
 
     ha = land.cell_area_ha()
     euc0 = land.cover[0, :, EUC].sum() * ha
@@ -576,5 +578,5 @@ queimados, como se fai cos datos reais.
 
 {GLOSSARY}"""
     path = out / "report.md"
-    path.write_text(md)
+    path.write_text(md, encoding="utf-8")
     return path

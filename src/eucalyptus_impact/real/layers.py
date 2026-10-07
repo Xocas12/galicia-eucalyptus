@@ -31,7 +31,7 @@ def _read_lonlat_window(url: str, decimate: int = 1, bounds=LONLAT_BBOX):
     import rasterio
     from rasterio.windows import from_bounds
 
-    with rasterio.open(url) as src:
+    with rasterio.open(url, encoding="utf-8") as src:
         win = from_bounds(*bounds, src.transform).round_offsets().round_lengths()
         win = win.intersection(rasterio.windows.Window(0, 0, src.width, src.height))
         shape = (max(1, int(win.height) // decimate), max(1, int(win.width) // decimate))
@@ -360,7 +360,7 @@ def ghcn_station_years() -> pd.DataFrame:
 
 
 @cached_npz("weather")
-def weather_layers(years=range(2001, 2025)):  # noqa: B008 (immutable range)
+def weather_layers(years=range(2001, 2025)):  # a range is immutable, so this default is safe
     """Cell-year fire-weather index from station anomalies, inverse-distance weighted.
 
     index = z(summer Tmax anomaly) - z(summer precipitation anomaly), each anomaly relative to

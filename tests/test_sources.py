@@ -90,7 +90,7 @@ def test_write_geotiff_roundtrip(tmp_path):
     arr = np.arange(100, dtype=float).reshape(10, 10)
     arr[0, 0] = np.nan
     p = write_geotiff(arr, GRID, tmp_path / "a.tif")
-    with rasterio.open(p) as src:
+    with rasterio.open(p, encoding="utf-8") as src:
         back = src.read(1, masked=True)
         assert src.crs.to_epsg() == 25829
         assert src.transform.c == GRID.xmin and src.transform.f == GRID.ymax

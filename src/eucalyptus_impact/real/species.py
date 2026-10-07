@@ -343,7 +343,7 @@ def normalised_cube(period: str = "2017", n_sample: int = 300_000, seed: int = 0
                 mapped = np.interp(blk, qa, qt)
                 out[m, b, r0 : r0 + 1000] = np.where(np.isfinite(blk), mapped, np.nan)
     out.flush()
-    done.write_text("ok")
+    done.write_text("ok", encoding="utf-8")
     return np.memmap(path, dtype="float16", mode="r", shape=shape)
 
 

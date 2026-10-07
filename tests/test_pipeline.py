@@ -48,8 +48,11 @@ def test_end_to_end(tiny_cfg, tiny_land, tmp_path):
         "restoration_priority.csv",
     ):
         assert (tmp_path / f).exists()
-    assert json.loads((tmp_path / "metrics.json").read_text())["land_cells"] == tiny_land.n
-    _assert_galician_only(path.read_text())
+    assert (
+        json.loads((tmp_path / "metrics.json").read_text(encoding="utf-8"))["land_cells"]
+        == tiny_land.n
+    )
+    _assert_galician_only(path.read_text(encoding="utf-8"))
 
 
 ENGLISH = {

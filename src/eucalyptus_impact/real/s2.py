@@ -165,7 +165,7 @@ def _read(url: str, factor: int):
 
     for attempt in range(4):
         try:
-            with rasterio.open(f"/vsicurl/{url}") as src:
+            with rasterio.open(f"/vsicurl/{url}", encoding="utf-8") as src:
                 shape = (src.height // factor, src.width // factor)
                 arr = src.read(1, out_shape=shape)
                 tr = src.transform * src.transform.scale(
@@ -308,5 +308,5 @@ def build_period(period: str, threads: int = 4, product: str = "idx") -> np.memm
             100 * valid,
             time.time() - t0,
         )
-    done.write_text("ok")
+    done.write_text("ok", encoding="utf-8")
     return np.memmap(path, dtype="float16", mode="r", shape=shape)

@@ -454,9 +454,9 @@ def _cached_json(name: str, fn):
     """Run `fn` once and keep its JSON-able result in data/interim/{name}.json."""
     path = INTERIM / f"{name}.json"
     if path.exists():
-        return json.loads(path.read_text())
+        return json.loads(path.read_text(encoding="utf-8"))
     out = json.loads(json.dumps(fn(), default=float))
-    path.write_text(json.dumps(out, indent=1))
+    path.write_text(json.dumps(out, indent=1), encoding="utf-8")
     return out
 
 
@@ -485,7 +485,7 @@ def save_cell_scores(cells: pd.DataFrame, fire: dict, susc: dict, proj: dict) ->
     df.to_parquet(INTERIM / "cell_scores.parquet")
     eff = {c: [e.estimate, e.se] for c, e in fire["cover_effects"].items()}
     meta = {"cover_effects": eff, "base_rate": susc["base_rate"], "auc": susc["auc"]}
-    (INTERIM / "fire_effects.json").write_text(json.dumps(meta, indent=1))
+    (INTERIM / "fire_effects.json").write_text(json.dumps(meta, indent=1), encoding="utf-8")
 
 
 def run_real(seed: int = 0) -> dict:
@@ -497,7 +497,8 @@ def run_real(seed: int = 0) -> dict:
     res = {"cells": cells, "maps": maps, "layers": L}
     res["areas"] = {p: area_table(maps, p) for p in ("2017", "2024")}
     res["species_metrics"] = {
-        p: json.loads((INTERIM / f"species_metrics_{p}.json").read_text()) for p in ("2017", "2024")
+        p: json.loads((INTERIM / f"species_metrics_{p}.json").read_text(encoding="utf-8"))
+        for p in ("2017", "2024")
     }
     res["fire"] = fire_analysis(panel, seed=seed)
     res["fire"]["map_sensitivity"] = map_sensitivity(cells, seed=seed)
@@ -526,7 +527,7 @@ def run_real(seed: int = 0) -> dict:
 
         res["mfe"] = _cached_json("mfe50_check", mfe_check)
     exp = INTERIM / "mfe_label_experiment.json"
-    res["mfe_experiment"] = json.loads(exp.read_text()) if exp.exists() else None
+    res["mfe_experiment"] = json.loads(exp.read_text(encoding="utf-8")) if exp.exists() else None
     log.info("reference and water done")
     res["panel_summary"] = {
         "cells": len(cells),

@@ -83,7 +83,7 @@ def _data():
     d["burnt"] = {y: ef[f"burned40_{y}"] for y in FIRE_YEARS}
     cs = pd.read_parquet(INTERIM / "cell_scores.parquet")
     d["cells"] = cs.set_index(["row", "col"])
-    d["effects"] = json.loads((INTERIM / "fire_effects.json").read_text())
+    d["effects"] = json.loads((INTERIM / "fire_effects.json").read_text(encoding="utf-8"))
     return d
 
 

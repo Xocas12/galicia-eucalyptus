@@ -1227,7 +1227,7 @@ porque se manteñen as restricións a novas plantacións):
 | VR | valor de robustez |
 """
     path = out / "informe.md"
-    path.write_text(md)
+    path.write_text(md, encoding="utf-8")
     metrics = {
         "areas": {p: a.to_dict(orient="records") for p, a in areas.items()},
         "native_to_euc_ha": nat,
@@ -1235,7 +1235,9 @@ porque se manteñen as restricións a novas plantacións):
         "contrasts": proj["contrasts"].to_dict(orient="records"),
         "panel": ps,
     }
-    (out / "metrics.json").write_text(json.dumps(metrics, indent=2, default=float))
+    (out / "metrics.json").write_text(
+        json.dumps(metrics, indent=2, default=float), encoding="utf-8"
+    )
     return path
 
 

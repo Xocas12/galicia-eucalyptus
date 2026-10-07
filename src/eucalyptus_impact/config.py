@@ -71,5 +71,5 @@ def config_from_dict(d: dict) -> StudyConfig:
 
 
 def load_config(path: str | Path) -> StudyConfig:
-    with open(path) as fh:
+    with open(path, encoding="utf-8") as fh:
         return config_from_dict(yaml.safe_load(fh) or {})

@@ -124,7 +124,7 @@ def scene_indices(row: pd.Series):
     for b in BANDS[row["SPACECRAFT_ID"]]:
         for attempt in range(4):
             try:
-                with rasterio.open(f"/vsicurl/{base}_B{b}.TIF") as src:
+                with rasterio.open(f"/vsicurl/{base}_B{b}.TIF", encoding="utf-8") as src:
                     dn = src.read(1)
                     tr, crs = src.transform, src.crs
                 break
@@ -135,7 +135,7 @@ def scene_indices(row: pd.Series):
         m = float(meta[f"REFLECTANCE_MULT_BAND_{b}"])
         a = float(meta[f"REFLECTANCE_ADD_BAND_{b}"])
         refl.append(np.where(dn > 0, (dn * m + a) / sun, np.nan).astype("float32"))
-    with rasterio.open(f"/vsicurl/{base}_BQA.TIF") as src:
+    with rasterio.open(f"/vsicurl/{base}_BQA.TIF", encoding="utf-8") as src:
         bad = _qa_bad(src.read(1).astype("uint16"), row["SPACECRAFT_ID"])
     red, nir, sw1, sw2 = refl
     with np.errstate(invalid="ignore", divide="ignore"):
@@ -220,7 +220,7 @@ def epoch_features(epoch: str) -> np.memmap:
     f[6:9] = s.astype("float32") - w.astype("float32")
     f.flush()
     sc.to_csv(INTERIM / f"landsat_{epoch}_scenes.csv", index=False)
-    done.write_text("ok")
+    done.write_text("ok", encoding="utf-8")
     return np.memmap(path, dtype="float16", mode="r", shape=(9, ny, nx))
 
 
@@ -414,7 +414,7 @@ def c2_scene_indices(item, factor: int = 2):
         href = signed(key)
         for attempt in range(4):
             try:
-                with rasterio.open(href) as src:
+                with rasterio.open(href, encoding="utf-8") as src:
                     shape = (src.height // factor, src.width // factor)
                     a = src.read(1, out_shape=shape)
                     if tr is None:
@@ -496,7 +496,7 @@ def c2_cube(epoch: str) -> np.memmap:
             cube[k], n_ok = np.nan, 0
         cube.flush()
         if n_ok >= 0.8 * len(items):
-            mdone.write_text("ok")
+            mdone.write_text("ok", encoding="utf-8")
         log.info(
             "landsat C2 %s month %02d: %d/%d scenes, %.0f%% valid, %.0fs",
             epoch,
@@ -509,7 +509,7 @@ def c2_cube(epoch: str) -> np.memmap:
     missing = [m for m in C2_MONTHS if not (INTERIM / f"landsat_c2_{epoch}_m{m:02d}.done").exists()]
     if missing:
         raise RuntimeError(f"landsat C2 {epoch}: months {missing} incomplete; rerun to resume")
-    done.write_text("ok")
+    done.write_text("ok", encoding="utf-8")
     return np.memmap(path, dtype="float16", mode="r", shape=shape)
 
 
