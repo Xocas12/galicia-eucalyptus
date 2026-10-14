@@ -108,17 +108,50 @@ def risk_class(pct: float) -> str:
     return "low"
 
 
+def cover_effects_record(fire: dict) -> dict:
+    """The per-class cover effects and their joint covariance, as stored in fire_effects.json.
+
+    {"cover_effects": {class: [estimate, se]}, "cover_cov": {"classes": [...], "matrix": [...]}}
+    """
+    rec = {"cover_effects": {c: [e.estimate, e.se] for c, e in fire["cover_effects"].items()}}
+    if "cover_cov" in fire:
+        rec["cover_cov"] = fire["cover_cov"]
+    return rec
+
+
+def cover_contrast(effects: dict, a: str, b: str) -> tuple[float, float]:
+    """Difference between two cover effects (a minus b) and its SE.
+
+    The per-class effects are fitted on the same rows, folds and clusters, so their errors are
+    correlated: var(a - b) = var_a + var_b - 2 cov_ab, with the joint cluster covariance stored
+    under "cover_cov". Files written before that covariance was stored lack it; they are refused
+    rather than combined as if independent, since the sign of the error is not known.
+    """
+    ea, _ = effects["cover_effects"][a]
+    eb, _ = effects["cover_effects"][b]
+    cov = effects.get("cover_cov")
+    if cov is None:
+        raise KeyError(
+            "fire_effects.json has no cover_cov (joint covariance of the cover effects); "
+            "re-run `euc real run` to write it"
+        )
+    k = {c: i for i, c in enumerate(cov["classes"])}
+    V = np.asarray(cov["matrix"], float)
+    i, j = k[a], k[b]
+    var = V[i, i] + V[j, j] - 2 * V[i, j]
+    return ea - eb, float(np.sqrt(max(var, 0.0)))
+
+
 def eucalyptus_contribution(effects: dict, f_euc: float, other: str | None = None) -> dict:
     """Change in annual burn probability attributable to the local eucalyptus share.
 
     Against agriculture/other (the effects' baseline) when `other` is None; against another
-    cover (e.g. native broadleaf) as the difference of the two effects otherwise, with the SEs
-    combined as if independent (they come from separate fits).
+    cover (e.g. native broadleaf) as the difference of the two effects otherwise, with the SE
+    from their joint covariance (`cover_contrast`).
     """
     e, se = effects["cover_effects"]["f_eucalyptus"]
     if other is not None:
-        e2, se2 = effects["cover_effects"][f"f_{other}"]
-        e, se = e - e2, float(np.hypot(se, se2))
+        e, se = cover_contrast(effects, "f_eucalyptus", f"f_{other}")
     est, half = e * f_euc, 1.96 * se * f_euc
     return {"estimate": est, "ci": [est - half, est + half], "significant": abs(e) > 1.96 * se}
 
@@ -213,8 +246,11 @@ def lookup(lat: float, lon: float, with_catchment: bool = True) -> dict:
             "eucalyptus_contribution_vs_agriculture": eucalyptus_contribution(
                 eff, f24["eucalyptus"]
             ),
-            "eucalyptus_contribution_vs_native": eucalyptus_contribution(
-                eff, f24["eucalyptus"], "native_broadleaf"
+            # None for a fire_effects.json written before the joint covariance was stored.
+            "eucalyptus_contribution_vs_native": (
+                eucalyptus_contribution(eff, f24["eucalyptus"], "native_broadleaf")
+                if "cover_cov" in eff
+                else None
             ),
             "model_auc": float(eff["auc"]),
         }
@@ -350,6 +386,8 @@ def format_lookup(r: dict, lang: str = "en") -> str:
             if c["cover_2024"]["eucalyptus"] < 0.005:
                 break
             e = k[key]
+            if e is None:
+                continue
             lines.append(
                 f"  {L[lab]}: {pp(e['estimate'])} [{pp(e['ci'][0])}, {pp(e['ci'][1])}]"
                 + ("" if e["significant"] else f" ({L['ns']})")

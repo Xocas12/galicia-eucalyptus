@@ -29,6 +29,7 @@ from ..reporting import (
 )
 from .common import GRID_1KM
 from .layers import EUC
+from .lookup import cover_contrast, cover_effects_record
 
 GL.update(
     {
@@ -873,18 +874,7 @@ def _resumo(res: dict) -> str:
         f"humana, a meteoroloxía e as demais cubertas, {occ_txt}. {shrub_txt}{rv_txt}{reg_txt}"
         + _sensitivity_txt(fire)
     )
-    nat_e = fire["cover_effects"]["f_native_broadleaf"]
-    diff = occ.estimate - nat_e.estimate
-    diff_se = float(np.hypot(occ.se, nat_e.se))
-    items.append(
-        "- **Eucalipto fronte a frondosas autóctonas.** O efecto anterior compárase coa "
-        "agricultura e outros usos, que son os que máis arden. Fronte ás frondosas autóctonas, "
-        f"que son as que menos arden, 10 puntos de eucalipto no canto de frondosas cambian a "
-        f"probabilidade anual de queima en {num(diff * 10, 2)} puntos porcentuais (IC 95 % "
-        f"aproximado: {num((diff - 1.96 * diff_se) * 10, 2)} a "
-        f"{num((diff + 1.96 * diff_se) * 10, 2)}; aproximado porque combina dúas estimacións "
-        "separadas). Este é o contraste que importa para a restauración."
-    )
+    items.append(_native_contrast_txt(fire))
     sev_txt = "distinguible de cero" if _sig(sev) else "non distinguible de cero"
     items.append(
         f"- **Severidade.** Entre as celas queimadas, o efecto do eucalipto sobre a clase de "
@@ -938,6 +928,23 @@ def _resumo(res: dict) -> str:
             "eucalipto ou maior; fai falta un historial de cuberta máis longo (sección 6)."
         )
     return "\n".join(items)
+
+
+def _native_contrast_txt(fire: dict) -> str:
+    """Eucalyptus vs native broadleaf, with the CI from the joint covariance of the two fits."""
+    diff, diff_se = cover_contrast(cover_effects_record(fire), "f_eucalyptus", "f_native_broadleaf")
+    lo, hi = diff - 1.96 * diff_se, diff + 1.96 * diff_se
+    return (
+        "- **Eucalipto fronte a frondosas autóctonas.** O efecto anterior compárase coa "
+        "agricultura e outros usos, que son os que máis arden. Fronte ás frondosas autóctonas, "
+        f"que son as que menos arden, 10 puntos de eucalipto no canto de frondosas cambian a "
+        f"probabilidade anual de queima en {num(diff * 10, 2)} puntos porcentuais (IC 95 %: "
+        f"{num(lo * 10, 2)} a {num(hi * 10, 2)}"
+        + ("; inclúe o cero" if lo < 0 < hi else "; exclúe o cero")
+        + "). As dúas estimacións saen de axustes sobre as mesmas celas e os mesmos bloques, así "
+        "que o intervalo usa a súa covarianza conxunta e non as trata como independentes. Este "
+        "é o contraste que importa para a restauración."
+    )
 
 
 def _ref_resumo(ref: dict | None, inv: dict | None = None) -> str:
@@ -1177,7 +1184,8 @@ píxeles fiables ({num(proj["components"].diagnostics["conv_rate_target"] * 100,
 superficie sen eucalipto), reforzada polos incendios recentes. O motor non inclúe perdas de
 eucalipto agás a restauración, así que o crecemento no escenario tendencial é un límite superior. O modelo validouse na paisaxe sintética (1 km), onde sobreestimou uns 40 % os beneficios
 da restauración e moito máis os do límite, porque sobreestima a plantación de referencia. As bandas son os percentís 5 e 95 de 40 simulacións que combinan a
-variabilidade meteorolóxica e a incerteza dos efectos.
+variabilidade meteorolóxica e a incerteza dos efectos; os efectos de cada cuberta sortéanse
+xuntos, coa súa covarianza conxunta, porque saen de axustes sobre as mesmas celas e bloques.
 
 {_md_table(proj["contrasts"], 4, values=("scenario",))}
 

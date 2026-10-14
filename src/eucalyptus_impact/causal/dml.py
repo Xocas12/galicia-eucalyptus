@@ -113,8 +113,41 @@ def dml_plr(
         method,
         len(y),
         reliability=reliability,
-        diag={"res_y": res_y, "res_d": res_d, "groups": groups, "d_error_var": d_error_var or 0.0},
+        diag={
+            "res_y": res_y,
+            "res_d": res_d,
+            "groups": groups,
+            "d_error_var": d_error_var or 0.0,
+            "jac": jac,
+        },
     )
+
+
+def joint_cluster_cov(estimates) -> np.ndarray:
+    """Joint cluster-robust covariance of several DML estimates fitted on the same rows.
+
+    Separate `dml_plr` fits on one panel (e.g. the effect of each cover class) share rows,
+    spatial folds and clusters, so their errors are correlated and a contrast between two of
+    them is not var_a + var_b. Each estimate's influence is psi / J per row; summing it within
+    clusters and taking the outer product of the cluster sums (with the CR1 factor of
+    `cluster_se`) gives the full covariance. The diagonal equals the squared `cluster_se`.
+    """
+    estimates = list(estimates)
+    first = estimates[0].diag
+    groups = np.asarray(first["groups"])
+    n = len(groups)
+    _, inv = np.unique(groups, return_inverse=True)
+    g = int(inv.max()) + 1
+    sums = np.zeros((g, len(estimates)))
+    for k, est in enumerate(estimates):
+        r = est.diag
+        if len(r["res_d"]) != n or not np.array_equal(np.asarray(r["groups"]), groups):
+            raise ValueError(f"{est.name}: not fitted on the same rows and clusters")
+        dev = r["d_error_var"]
+        jac = r.get("jac", float(np.mean(r["res_d"] ** 2)) - dev)
+        psi = r["res_d"] * r["res_y"] - est.estimate * (r["res_d"] ** 2 - dev)
+        sums[:, k] = np.bincount(inv, weights=psi / jac, minlength=g)
+    return (g / max(g - 1, 1)) * (sums.T @ sums) / n**2
 
 
 def reclustered_se(est: EffectEstimate, groups) -> float:

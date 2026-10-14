@@ -178,6 +178,10 @@ What the real-data run established, and what it did not:
   10 more points of eucalyptus lower annual burn probability by 0.26 pp (95% CI −0.46 to
   −0.07; robustness value 0.017, so a weak confounder could explain it). Against native
   broadleaf, eucalyptus raises it by 0.23 pp, but the interval includes zero (−0.12 to 0.57).
+  That interval is approximate: it treats the two effects as independent, though they are fit
+  on the same cell-years and clusters (#13). If their correlation is above about 0.6 the joint
+  interval excludes zero; if it is negative, the interval is wider. The code now uses the joint
+  cluster covariance; the published numbers predate it and await a re-run.
   All three map versions now agree and are significant (2017 backdated −0.26, 2017 independent
   −0.16, 2024 −0.46). No severity effect is detectable.
 - **Ground check of the fire result.** IFN3 plots record where eucalyptus was around 1998,
@@ -197,6 +201,10 @@ What the real-data run established, and what it did not:
   restoration benefits by about 40%) projects the scenarios to 2040 with paired uncertainty
   bands. Restoring 25% of eucalyptus in priority cells changes mean burnt area by about −960
   ha/yr (5–95% band −1,740 to +280; random placement about −330): the bands now include zero.
+  These bands drew the per-class fire effects independently; with the joint covariance they
+  could narrow enough to exclude zero (above a correlation of about 0.4–0.5) or widen (#13).
+  The code now draws them jointly; the numbers await a re-run, so "includes zero" is not yet
+  established.
   Baseline burn probabilities are cross-fitted by spatial block and isotonic-calibrated.
 - **Water.** CAMELS-ES (Zenodo 15040948, CC BY 4.0) gives daily flows, EMO-1 precipitation and
   reference ET for 33 catchments mostly inside Galicia, 1992–2020. With two-way fixed effects

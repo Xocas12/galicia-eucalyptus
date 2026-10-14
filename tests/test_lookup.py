@@ -27,7 +27,11 @@ def test_eucalyptus_contribution_scales_with_share_and_combines_ses():
         "cover_effects": {
             "f_eucalyptus": [-0.02, 0.01],
             "f_native_broadleaf": [-0.05, 0.01],
-        }
+        },
+        "cover_cov": {
+            "classes": ["f_eucalyptus", "f_native_broadleaf"],
+            "matrix": [[1e-4, 0.5e-4], [0.5e-4, 1e-4]],
+        },
     }
     a = LK.eucalyptus_contribution(eff, 0.5)
     assert np.isclose(a["estimate"], -0.01)
@@ -35,7 +39,8 @@ def test_eucalyptus_contribution_scales_with_share_and_combines_ses():
     assert a["significant"]
     b = LK.eucalyptus_contribution(eff, 0.5, "native_broadleaf")
     assert np.isclose(b["estimate"], 0.015)
-    assert np.isclose(b["ci"][1] - b["estimate"], 1.96 * np.hypot(0.01, 0.01) * 0.5)
+    # Correlation 0.5 between the two fits: var(diff) = 1e-4 + 1e-4 - 2 * 0.5e-4.
+    assert np.isclose(b["ci"][1] - b["estimate"], 1.96 * 0.01 * 0.5)
 
 
 def _result():

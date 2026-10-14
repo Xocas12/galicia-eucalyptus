@@ -28,7 +28,7 @@ from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostin
 from sklearn.inspection import permutation_importance
 from sklearn.metrics import brier_score_loss, roc_auc_score
 
-from ..causal.dml import dml_plr, group_effects, ols, reclustered_se
+from ..causal.dml import dml_plr, group_effects, joint_cluster_cov, ols, reclustered_se
 from ..causal.sensitivity import bias_bound, robustness_value
 from ..dynamic import COVER, estimate_components, project, scenario_contrasts
 from ..geo.grid import block_ids
@@ -36,6 +36,7 @@ from ..geo.raster_ops import distance_to, focal_mean
 from ..validation.spatial_cv import SpatialBlockKFold
 from .common import GRID_1KM, INTERIM, RAW, log
 from .layers import EUC, NATIVE, PINE, all_layers
+from .lookup import cover_effects_record
 from .reference import (
     inventory_check,
     inventory_training_experiment,
@@ -146,6 +147,12 @@ def fire_analysis(panel: pd.DataFrame, n_folds=5, seed=0) -> dict:
             y, panel[c].to_numpy(), X_all(c), g, n_folds, seed, name=f"{c[2:]} -> P(burn)"
         )
     out["cover_effects"] = cover_effects
+    # The four fits share rows, folds and clusters, so their errors are correlated; contrasts
+    # between covers (eucalyptus vs native) and the projection draws need the joint covariance.
+    out["cover_cov"] = {
+        "classes": list(cover_effects),
+        "matrix": joint_cluster_cov(cover_effects.values()).tolist(),
+    }
     occ = cover_effects["f_eucalyptus"]
     occ.name = "eucalyptus -> P(burn)"
     out["occurrence_dml"] = occ
@@ -353,7 +360,10 @@ def projections(
 ) -> dict:
     ce = fire["cover_effects"]
     theta = np.array([ce[c].estimate if c in ce else 0.0 for c in COVER])
-    theta_se = np.array([ce[c].se if c in ce else 0.0 for c in COVER])
+    # Joint covariance of the estimated effects (zero rows for the agriculture/other baseline).
+    theta_cov = np.zeros((len(COVER), len(COVER)))
+    idx = [COVER.index(c) for c in fire["cover_cov"]["classes"]]
+    theta_cov[np.ix_(idx, idx)] = fire["cover_cov"]["matrix"]
     rates = np.array([(cells[f"burned_{yr}"] >= 0.01).mean() for yr in FIRE_YEARS])
     weather = rates / rates.mean()
     burned_cells = np.concatenate(
@@ -393,7 +403,7 @@ def projections(
     targeted = select(np.argsort(-score))
     random_ = select(rng.permutation(len(euc)))
     H = horizon - 2024
-    kw = dict(cell_area_ha=100.0, n_sims=40, seed=seed, theta_se=theta_se)
+    kw = dict(cell_area_ha=100.0, n_sims=40, seed=seed, theta_cov=theta_cov)
     trajs = {
         "BAU": project(f0, comp, H, "bau", **kw),
         "Cap / moratorium": project(f0, comp, H, "cap", **kw),
@@ -467,8 +477,8 @@ def save_cell_scores(cells: pd.DataFrame, fire: dict, susc: dict, proj: dict) ->
     burn probability at average weather (`p_base`), its percentile across Galicia, the
     restoration priority score (p_base x eucalyptus share) and whether the cell is in the
     targeted-restoration set, and the observed 2018-2023 burned shares. fire_effects.json: the
-    cover effects on annual burn probability with SEs, which the lookup turns into a local
-    eucalyptus contribution.
+    cover effects on annual burn probability with SEs and their joint covariance, which the
+    lookup turns into a local eucalyptus contribution.
     """
     keep = ["row", "col", "x_km", "y_km", "elev", "slope", "dist_sea_km", "log_buildings"]
     keep += ["dist_settlement_km", "burned_share", "gross_gain"]
@@ -483,8 +493,7 @@ def save_cell_scores(cells: pd.DataFrame, fire: dict, susc: dict, proj: dict) ->
     df["priority_pct"] = pd.Series(proj["priority"]).rank(pct=True).to_numpy()
     df["targeted"] = proj["targeted"] > 0
     df.to_parquet(INTERIM / "cell_scores.parquet")
-    eff = {c: [e.estimate, e.se] for c, e in fire["cover_effects"].items()}
-    meta = {"cover_effects": eff, "base_rate": susc["base_rate"], "auc": susc["auc"]}
+    meta = cover_effects_record(fire) | {"base_rate": susc["base_rate"], "auc": susc["auc"]}
     (INTERIM / "fire_effects.json").write_text(json.dumps(meta, indent=1), encoding="utf-8")
 
 

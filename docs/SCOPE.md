@@ -168,6 +168,10 @@ has the ingestion adapters. The adapters are written but **have not been run fro
   (re-estimate with posterior class probabilities).
 - *Reverse causality:* fire → plantation is modelled explicitly with lagged cover (cover at t−1
   → fire at t).
+- *Correlated estimates:* the per-class fire effects are separate DML fits on the same rows,
+  folds and clusters, so their errors are correlated. Contrasts between classes (eucalyptus vs
+  native) and the projection draws use their joint cluster-robust covariance
+  (`causal.dml.joint_cluster_cov`), not independent SEs.
 - *Scale:* 1 km cells mix land uses. Fractions rather than dominant class are used for all effects.
 
 ## 7. Deliverables and milestones
