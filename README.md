@@ -10,10 +10,11 @@ to **native forest**, **wildfire** and **water**, and what alternative forest pl
 
 > **Read the real-data results with their caveats.** The species maps are trained on cleaned
 > OpenStreetMap labels, harvest-history pseudo-labels and the Mapa Forestal de España (MFE50,
-> about 1998), and are checked against the MFE50 and the IFN3 inventory plots. The eucalyptus
-> area is plausible, but pixel- and plot-level agreement is modest (F1 about 0.5), and map error
-> attenuates every estimate that uses the map. Numbers from the synthetic runs are properties of
-> the methods, not facts about Galicia.
+> about 1998), and are checked against the MFE50 and the IFN3 inventory plots. No reference of
+> matching date validates the mapped eucalyptus area: both are from about 1998, and the IFN3
+> plots record presence, not the dominant class. Pixel- and plot-level agreement is modest (F1
+> about 0.5), and map error attenuates every estimate that uses the map. Numbers from the
+> synthetic runs are properties of the methods, not facts about Galicia.
 
 Self-contained: one `pyproject.toml`, one test suite, one virtual environment. The synthetic
 end-to-end run is pure numpy and scikit-learn; the real-data ingestion lives behind the
@@ -161,8 +162,14 @@ What the real-data run established, and what it did not:
     The newer MFE25 (IFN4 base, 2011) sits behind an anti-bot challenge on the download server;
     put its shapefile in `data/raw/mfe25/` to use it.
   - *IFN3 plots* (on GBIF, MAGRAMA collection IFN3; species present per plot, no counts or
-    dates; about 6,900 plots): the eucalyptus share is right in aggregate (30% of forested plots
-    mapped as eucalyptus vs 27.5% listing it), plot-level F1 0.46.
+    dates; about 6,900 plots): plot-level F1 0.46. About 30% of forested plots with a mapped
+    class are mapped as eucalyptus and 27.5% of all forested plots list it, but the near-match
+    does not validate the area: the plots record eucalyptus *present* in a 25 m circle around
+    1998, the map the *dominant* class of a 40 m pixel in 2024. Dominance is at most presence,
+    and planting since 1998 pushes the other way, so a correct map could sit well above or
+    below the plot share; the match only rules out gross error. (The two shares above were
+    taken over different plot sets; the code now takes both over the same forested plots with
+    a mapped class, and the next real run will report that pair.)
 
   Pixel- and plot-level agreement stays modest: partly real change since 1998, partly map
   error. Opportunistic GBIF sightings are a secondary check. `real/reference.py`.

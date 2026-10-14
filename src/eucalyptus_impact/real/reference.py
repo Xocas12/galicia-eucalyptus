@@ -354,6 +354,27 @@ def _plot_scores(p: pd.DataFrame, pred: np.ndarray) -> dict:
     }
 
 
+def forest_euc_shares(plot_type, m) -> dict:
+    """Eucalyptus share of the forested inventory plots, by the plots and by the map.
+
+    Both shares are taken over the same plots: those with a tree genus recorded (not "só
+    mato") whose pixel has a mapped class (below 6). They still do not measure the same thing:
+    the plots record eucalyptus *present* in a 25 m circle around 1998, the map the *dominant*
+    class of a 40 m pixel at the map's own date. Dominance is at most presence at one date, and
+    planting after the survey pushes the other way, so a near-match is a coarse check against
+    gross error, not a validation of the mapped area.
+    """
+    pt = np.asarray(plot_type)
+    m = np.asarray(m)
+    keep = (pt != "só mato") & (m < 6)
+    n = int(keep.sum())
+    return {
+        "n_forest_plots_compared": n,
+        "plot_euc_share": float((pt[keep] == "eucalipto").mean()) if n else float("nan"),
+        "map_euc_share_at_forest_plots": float((m[keep] == 0).mean()) if n else float("nan"),
+    }
+
+
 def inventory_check() -> dict:
     """Map agreement with the inventory plots: overall, outside the north, by plot type, and
     whether map-eucalyptus plots without eucalyptus show later disturbance (Hansen loss from
@@ -407,12 +428,7 @@ def inventory_check() -> dict:
         tn = (m < 6) & (m != 0) & (plots["plot_type"] != "eucalipto").to_numpy()
         res["disturbed_share_false_euc"] = float(plots["disturbed_since_2001"][fp].mean())
         res["disturbed_share_other"] = float(plots["disturbed_since_2001"][tn].mean())
-        # Share of forest plots (any tree genus) that list eucalyptus, against the map's share
-        # of eucalyptus at the same plots: both describe the same sample.
-        forest = plots["plot_type"] != "só mato"
-        res["plot_euc_share"] = float((plots["plot_type"][forest] == "eucalipto").mean())
-        mf = m[forest.to_numpy()]
-        res["map_euc_share_at_forest_plots"] = float((mf[mf < 6] == 0).mean())
+        res.update(forest_euc_shares(plots["plot_type"], m))
         out[name] = res
     return out
 
@@ -519,13 +535,8 @@ def landsat_inventory_check() -> dict:
     out = {}
     for name, m in maps.items():
         s = _plot_scores(plots, m)
-        forest = plots["plot_type"] != "só mato"
-        v = m[plots["row"], plots["col"]][forest.to_numpy()]
-        s["map_euc_share_at_forest_plots"] = float((v[v < 6] == 0).mean())
+        s.update(forest_euc_shares(plots["plot_type"], m[plots["row"], plots["col"]]))
         out[name] = s
-    out["plot_euc_share"] = float(
-        (plots["plot_type"][plots["plot_type"] != "só mato"] == "eucalipto").mean()
-    )
     return out
 
 
