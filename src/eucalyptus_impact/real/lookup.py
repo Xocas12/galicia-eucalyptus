@@ -108,18 +108,25 @@ def risk_class(pct: float) -> str:
     return "low"
 
 
-def eucalyptus_contribution(effects: dict, f_euc: float, other: str | None = None) -> dict:
+def eucalyptus_contribution(
+    effects: dict, f_euc: float, other: str | None = None, risk_weight: float = 1.0
+) -> dict:
     """Change in annual burn probability attributable to the local eucalyptus share.
 
     Against agriculture/other (the effects' baseline) when `other` is None; against another
     cover (e.g. native broadleaf) as the difference of the two effects otherwise, with the SEs
     combined as if independent (they come from separate fits).
+
+    risk_weight: 1 gives the Galicia-wide average effect. The cell's `risk_weight` from
+    cell_scores gives the effect the way the projection engine applies it there (scaled by
+    p(1-p) relative to its mean, `dynamic.risk_weights`), which is an assumption, not an
+    estimate.
     """
     e, se = effects["cover_effects"]["f_eucalyptus"]
     if other is not None:
         e2, se2 = effects["cover_effects"][f"f_{other}"]
         e, se = e - e2, float(np.hypot(se, se2))
-    est, half = e * f_euc, 1.96 * se * f_euc
+    est, half = e * f_euc * risk_weight, 1.96 * se * f_euc * risk_weight
     return {"estimate": est, "ci": [est - half, est + half], "significant": abs(e) > 1.96 * se}
 
 
@@ -218,6 +225,13 @@ def lookup(lat: float, lon: float, with_catchment: bool = True) -> dict:
             ),
             "model_auc": float(eff["auc"]),
         }
+        if "risk_weight" in cs:
+            # The same contrast as the restoration projection applies it in this cell.
+            w = float(cs["risk_weight"])
+            out["risk"]["risk_weight"] = w
+            out["risk"]["eucalyptus_contribution_vs_native_engine"] = eucalyptus_contribution(
+                eff, f24["eucalyptus"], "native_broadleaf", risk_weight=w
+            )
     try:
         out["ifn3_plot"] = nearest_plot(x, y)
     except FileNotFoundError:
@@ -265,6 +279,7 @@ def format_lookup(r: dict, lang: str = "en") -> str:
             "cag": "efecto medio galego do eucalipto desta cela, fronte a agricultura/outros",
             "big": "maior ca a probabilidade da cela: o efecto medio non se traslada ben a celas de pouco risco",
             "cnat": "o mesmo, fronte a frondosas",
+            "ceng": "o mesmo, como o aplica o motor de proxeccións nesta cela (efecto medio x {w}, segundo p(1-p); hipótese, non estimación)",
             "ns": "non distinguible de cero",
             "plot": "Parcela IFN3 máis próxima (~1998)",
             "up": "Conca augas arriba",
@@ -302,6 +317,7 @@ def format_lookup(r: dict, lang: str = "en") -> str:
             "cag": "Galicia-wide average effect of this cell's eucalyptus, vs agriculture/other",
             "big": "larger than the cell's own probability: the average effect does not transfer well to low-risk cells",
             "cnat": "same, vs native broadleaf",
+            "ceng": "same, as the projection engine applies it in this cell (average effect x {w}, from p(1-p); an assumption, not an estimate)",
             "ns": "not distinguishable from zero",
             "plot": "Nearest IFN3 plot (~1998)",
             "up": "Upstream catchment",
@@ -346,12 +362,16 @@ def format_lookup(r: dict, lang: str = "en") -> str:
         for key, lab in (
             ("eucalyptus_contribution_vs_agriculture", "cag"),
             ("eucalyptus_contribution_vs_native", "cnat"),
+            ("eucalyptus_contribution_vs_native_engine", "ceng"),
         ):
             if c["cover_2024"]["eucalyptus"] < 0.005:
                 break
+            if key not in k:
+                continue
             e = k[key]
+            head = L[lab].format(w=dec(k.get("risk_weight", 1.0), 2))
             lines.append(
-                f"  {L[lab]}: {pp(e['estimate'])} [{pp(e['ci'][0])}, {pp(e['ci'][1])}]"
+                f"  {head}: {pp(e['estimate'])} [{pp(e['ci'][0])}, {pp(e['ci'][1])}]"
                 + ("" if e["significant"] else f" ({L['ns']})")
             )
             if abs(e["estimate"]) > k["annual_fire_probability"]:

@@ -30,7 +30,7 @@ from sklearn.metrics import brier_score_loss, roc_auc_score
 
 from ..causal.dml import dml_plr, group_effects, ols, reclustered_se
 from ..causal.sensitivity import bias_bound, robustness_value
-from ..dynamic import COVER, estimate_components, project, scenario_contrasts
+from ..dynamic import COVER, estimate_components, project, risk_weights, scenario_contrasts
 from ..geo.grid import block_ids
 from ..geo.raster_ops import distance_to, focal_mean
 from ..validation.spatial_cv import SpatialBlockKFold
@@ -402,6 +402,20 @@ def projections(
     }
     for t in trajs.values():
         t["year"] = t["year"] + 2024
+    # The engine scales the average cover effects by p(1-p) (`dynamic.risk_weights`), an
+    # assumption the fits do not estimate, and that scaling is most of the targeted-vs-random
+    # gap. The same three runs with one constant effect per class show how much.
+    kw_const = dict(kw, risk_scaling=False)
+    trajs_const = {
+        "BAU": project(f0, comp, H, "bau", **kw_const),
+        "Targeted restoration": project(f0, comp, H, "restore", targeted, **kw_const),
+        "Random restoration": project(f0, comp, H, "restore", random_, **kw_const),
+    }
+    w = risk_weights(susc["p_base"])
+    risk_weight_selected = {
+        name: float(np.sum(euc * sel * w) / max(np.sum(euc * sel), 1e-12))
+        for name, sel in (("Targeted restoration", targeted), ("Random restoration", random_))
+    }
     # Sensitivity: BAU conversion at half the 2017-2024 average (e.g. if the post-2021
     # planting restrictions hold).
     import copy
@@ -417,9 +431,55 @@ def projections(
         "trajectories": trajs,
         "contrasts": scenario_contrasts(trajs),
         "contrasts_half_conversion": scenario_contrasts(trajs_half),
+        "contrasts_constant_effect": scenario_contrasts(trajs_const),
+        "risk_weight_selected": risk_weight_selected,
+        "risk_weight": w,
         "targeted": targeted,
         "priority": score,
     }
+
+
+def restoration_contrast_by_risk(
+    fire: dict, panel: pd.DataFrame, cells: pd.DataFrame, p_base: np.ndarray, n_groups: int = 5
+) -> pd.DataFrame:
+    """Eucalyptus -> native broadleaf effect on burn probability by baseline-risk group.
+
+    The projection engine scales the pooled contrast (theta_native - theta_eucalyptus) by
+    p(1-p) relative to its mean (`dynamic.risk_weights`); this checks that form against the
+    data. Rows of the fire panel are grouped by the quantile of their cell's `p_base` (the
+    engine's risk measure), and the group effects of both classes come from the cross-fitted
+    residuals of the pooled DML fits (`group_effects`). Per group: the estimated contrast with
+    its SE, what the engine assumes (pooled contrast x mean risk weight) and the constant
+    alternative (the pooled contrast). The SE combines the two class effects as independent,
+    like the pooled interval in the brief, although they are fitted on the same rows.
+    """
+    ce = fire["cover_effects"]
+    euc, nat = ce["f_eucalyptus"], ce["f_native_broadleaf"]
+    pooled = nat.estimate - euc.estimate
+    key = pd.DataFrame(
+        {"row": cells["row"].to_numpy(), "col": cells["col"].to_numpy(), "p_base": p_base}
+    )
+    key["risk_w"] = risk_weights(p_base)
+    rows = panel[["row", "col"]].merge(key, on=["row", "col"], how="left")
+    rank = rows["p_base"].rank(method="first")
+    labels = pd.qcut(rank, n_groups, labels=[f"Q{k + 1}" for k in range(n_groups)]).astype(str)
+    ge = group_effects(euc, labels.to_numpy()).set_index("group")
+    gn = group_effects(nat, labels.to_numpy()).set_index("group")
+    out = []
+    for g in ge.index:
+        m = (labels == g).to_numpy()
+        out.append(
+            {
+                "group": g,
+                "mean_p_base": float(rows.loc[m, "p_base"].mean()),
+                "contrast": float(gn.loc[g, "estimate"] - ge.loc[g, "estimate"]),
+                "contrast_se": float(np.hypot(gn.loc[g, "se"], ge.loc[g, "se"])),
+                "engine_risk_scaled": float(pooled * rows.loc[m, "risk_w"].mean()),
+                "constant": float(pooled),
+                "cell_years": int(m.sum()),
+            }
+        )
+    return pd.DataFrame(out)
 
 
 def map_sensitivity(cells: pd.DataFrame, seed: int = 0) -> pd.DataFrame:
@@ -465,10 +525,11 @@ def save_cell_scores(cells: pd.DataFrame, fire: dict, susc: dict, proj: dict) ->
 
     cell_scores.parquet: location, terrain, cover fractions (2017 and 2024), the fitted annual
     burn probability at average weather (`p_base`), its percentile across Galicia, the
-    restoration priority score (p_base x eucalyptus share) and whether the cell is in the
-    targeted-restoration set, and the observed 2018-2023 burned shares. fire_effects.json: the
-    cover effects on annual burn probability with SEs, which the lookup turns into a local
-    eucalyptus contribution.
+    scale the projection engine applies to the cover effects in that cell (`risk_weight`, see
+    `dynamic.risk_weights`), the restoration priority score (p_base x eucalyptus share) and
+    whether the cell is in the targeted-restoration set, and the observed 2018-2023 burned
+    shares. fire_effects.json: the cover effects on annual burn probability with SEs, which the
+    lookup turns into a local eucalyptus contribution.
     """
     keep = ["row", "col", "x_km", "y_km", "elev", "slope", "dist_sea_km", "log_buildings"]
     keep += ["dist_settlement_km", "burned_share", "gross_gain"]
@@ -479,6 +540,7 @@ def save_cell_scores(cells: pd.DataFrame, fire: dict, susc: dict, proj: dict) ->
         df[f"{c}_2024"] = cells[c + "_end"]
     df["p_base"] = susc["p_base"]
     df["p_base_pct"] = pd.Series(susc["p_base"]).rank(pct=True).to_numpy()
+    df["risk_weight"] = proj["risk_weight"]
     df["priority"] = proj["priority"]
     df["priority_pct"] = pd.Series(proj["priority"]).rank(pct=True).to_numpy()
     df["targeted"] = proj["targeted"] > 0
@@ -507,6 +569,9 @@ def run_real(seed: int = 0) -> dict:
     res["susceptibility"] = susceptibility(panel, cells, seed=seed)
     res["conversion"] = conversion_analysis(cells, maps, L, seed=seed)
     log.info("conversion done")
+    res["fire"]["restoration_by_risk"] = restoration_contrast_by_risk(
+        res["fire"], panel, cells, res["susceptibility"]["p_base"]
+    )
     res["projections"] = projections(cells, res["fire"], res["susceptibility"], seed=seed)
     log.info("projections done")
     save_cell_scores(cells, res["fire"], res["susceptibility"], res["projections"])

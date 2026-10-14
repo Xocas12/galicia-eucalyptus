@@ -32,7 +32,7 @@
 - **Eucalipto fronte a frondosas autóctonas.** O efecto anterior compárase coa agricultura e outros usos, que son os que máis arden. Fronte ás frondosas autóctonas, que son as que menos arden, 10 puntos de eucalipto no canto de frondosas cambian a probabilidade anual de queima en 0,23 puntos porcentuais (IC 95 % aproximado: -0,12 a 0,57; aproximado porque combina dúas estimacións separadas). Este é o contraste que importa para a restauración.
 - **Severidade.** Entre as celas queimadas, o efecto do eucalipto sobre a clase de severidade EFFIS é -0,21 por unidade de fracción (EE 0,33; non distinguible de cero; n = 2 146).
 - **Do lume á plantación.** Efecto da fracción queimada en 2018–2021 sobre a conversión bruta a eucalipto en 2024: 0,00056 (EE 0,0026), non distinguible de cero.
-- **Proxeccións a 2040.** Restaurar o 25 % do eucalipto cambia a superficie queimada media en -961 ha/ano se se fai nas celas prioritarias (banda 5–95 %: -1 737 a 278,8) e en -330,7 ha/ano se se fai ao chou (banda -624,1 a 121,4). As dúas bandas inclúen o cero: as proxeccións non permiten afirmar que restaurar reduza os incendios, nin que os aumente.
+- **Proxeccións a 2040.** Restaurar o 25 % do eucalipto cambia a superficie queimada media en -961 ha/ano se se fai nas celas prioritarias (banda 5–95 %: -1 737 a 278,8) e en -330,7 ha/ano se se fai ao chou (banda -624,1 a 121,4). As dúas bandas inclúen o cero: as proxeccións non permiten afirmar que restaurar reduza os incendios, nin que os aumente. A vantaxe de escoller as celas prioritarias depende dunha hipótese, non dunha estimación: o motor multiplica o efecto medio de cada cuberta por p(1−p) da cela (relativo á media), así que unha hectárea restaurada nunha cela de risco alto conta máis ca noutra de risco baixo (sección 5).
 - **Auga.** Cos caudais reais de 33 concas galegas (CAMELS-ES, 1992–2020) a estimación non informa: -1 009 mm/ano por 10 puntos de eucalipto, cun IC 95 % de -2 236 a 218. O eucalipto apenas cambia dentro das concas nos anos con caudais, e o mapa histórico con Landsat, que daría ese cambio, non superou a validación (seccións 2 e 6).
 
 ## 1. Datos empregados
@@ -400,6 +400,8 @@ variabilidade meteorolóxica e a incerteza dos efectos.
 
 ![proxeccións](proxeccions.png)
 
+Os efectos de cada cuberta estímanse como un efecto medio para toda Galicia. O motor aplícaos multiplicados por p(1−p) da cela, relativo á súa media (p é a probabilidade base de queima): é a forma dun risco loxístico, e evita que as celas de pouco risco perdan máis probabilidade da que teñen, porque o contraste eucalipto → frondosas é maior ca a probabilidade media de queima. Pero esa forma é unha hipótese, e é a que fai que restaurar nas celas prioritarias renda máis ca restaurar ao chou: cun efecto constante e sen recortes en p = 0, mover a mesma superficie de eucalipto daría o mesmo cambio esperado en calquera sitio. A paisaxe sintética non a pode validar, porque nela o lume xa é loxístico na cuberta.
+
 Sensibilidade: se a plantación futura fose a metade da observada en 2017–2024 (por exemplo,
 porque se manteñen as restricións a novas plantacións):
 
@@ -517,6 +519,12 @@ Conclusión: **cos mapas dispoñibles (2017 e 2024), nin sequera cos aforos se p
   exemplo, a intencionalidade dos lumes ou a propiedade das terras). A táboa de sensibilidade
   indica canto tería que pesar ese factor.
 - **Meteoroloxía.** O índice meteorolóxico procede de seis estacións; non é o FWI oficial.
+- **Efecto da restauración segundo o risco.** O motor supón que o efecto da cuberta medra con
+  p(1−p) (sección 5); os datos dan un efecto medio por clase, non esa forma, e a vantaxe da
+  restauración dirixida fronte á aleatoria depende dela. A mesma hipótese está detrás da
+  prioridade de restauración (probabilidade base × fracción de eucalipto). Ademais, o
+  contraste eucalipto → frondosas é a diferenza de dúas estimacións medias sobre partes
+  distintas de Galicia, non exactamente o efecto de substituír unha pola outra nunha cela.
 
 ## Siglas
 

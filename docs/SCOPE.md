@@ -156,6 +156,11 @@ has the ingestion adapters. The adapters are written but **have not been run fro
   using the fitted conversion and fire models.
 - Small scenario contrasts (the cap) are within simulation noise. Only the large ones
   (restoration) are resolved.
+- The dynamic engine scales the average cover effects by p(1−p) (`dynamic.risk_weights`).
+  The simulator's fire process is logistic in cover, so the targeted-vs-random comparison
+  passes that scaling by construction; it is not evidence for it. With a constant effect the
+  targeting premium mostly disappears. The real run reports both, and the eucalyptus→native
+  contrast by p_base quintile as the check on the form.
 
 ## 6. Threats to validity
 

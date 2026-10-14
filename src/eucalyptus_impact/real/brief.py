@@ -130,6 +130,17 @@ GL.update(
         "norte": "cadro do norte",
         "fora_das_etiquetas": "fóra dos polígonos de adestramento",
         "fora_do_norte_e_etiquetas": "fóra do norte e dos polígonos",
+        "mean_p_base": "probabilidade base media",
+        "contrast": "efecto estimado eucalipto → frondosas",
+        "contrast_se": "EE",
+        "engine_risk_scaled": "o que supón o motor (escalado por p(1−p))",
+        "constant": "efecto constante",
+        "Q1": "Q1 (risco máis baixo)",
+        "Q2": "Q2",
+        "Q3": "Q3",
+        "Q4": "Q4",
+        "Q5": "Q5 (risco máis alto)",
+        "cell_years": "anos-cela",
     }
 )
 
@@ -913,6 +924,7 @@ def _resumo(res: dict) -> str:
             else " Ao menos unha banda exclúe o cero, pero as proxeccións herdan a sensibilidade "
             "ao mapa descrita arriba."
         )
+        + _premium_txt(proj)
     )
     w = res.get("water")
     cam = (w or {}).get("camels_es") or {}
@@ -938,6 +950,63 @@ def _resumo(res: dict) -> str:
             "eucalipto ou maior; fai falta un historial de cuberta máis longo (sección 6)."
         )
     return "\n".join(items)
+
+
+def _premium_txt(proj: dict) -> str:
+    """The targeting premium with and without the p(1-p) scaling of the cover effects."""
+    head = (
+        " A vantaxe de escoller as celas prioritarias depende dunha hipótese, non dunha "
+        "estimación: o motor multiplica o efecto medio de cada cuberta por p(1−p) da cela "
+        "(relativo á media), así que unha hectárea restaurada nunha cela de risco alto conta "
+        "máis ca noutra de risco baixo (sección 5)."
+    )
+    cc = proj.get("contrasts_constant_effect")
+    if cc is None:
+        return head
+    cc = cc.set_index("scenario")
+    t, r = cc.loc["Targeted restoration"], cc.loc["Random restoration"]
+    return head + (
+        " Cun efecto constante en todas as celas, as cifras serían "
+        f"{num(t['d_burned_ha_per_year'])} ha/ano (prioritarias) e "
+        f"{num(r['d_burned_ha_per_year'])} ha/ano (ao chou)."
+    )
+
+
+def _risk_scaling_section(fire: dict, proj: dict) -> str:
+    """Engine assumption about how the cover effects vary with risk, and the checks on it."""
+    out = (
+        "Os efectos de cada cuberta estímanse como un efecto medio para toda Galicia. O motor "
+        "aplícaos multiplicados por p(1−p) da cela, relativo á súa media (p é a probabilidade "
+        "base de queima): é a forma dun risco loxístico, e evita que as celas de pouco risco "
+        "perdan máis probabilidade da que teñen, porque o contraste eucalipto → frondosas é "
+        "maior ca a probabilidade media de queima. Pero esa forma é unha hipótese, e é a que "
+        "fai que restaurar nas celas prioritarias renda máis ca restaurar ao chou: cun efecto "
+        "constante e sen recortes en p = 0, mover a mesma superficie de eucalipto daría o mesmo "
+        "cambio esperado en calquera sitio. A paisaxe sintética non a pode validar, porque nela "
+        "o lume xa é loxístico na cuberta."
+    )
+    rw = proj.get("risk_weight_selected")
+    if rw:
+        out += (
+            f" O peso medio (ponderado polo eucalipto) é {num(rw['Targeted restoration'], 3)} "
+            f"nas celas prioritarias e {num(rw['Random restoration'], 3)} nas escollidas ao "
+            "chou."
+        )
+    cc = proj.get("contrasts_constant_effect")
+    if cc is not None:
+        out += "\n\nAs mesmas proxeccións cun efecto constante en todas as celas:\n\n" + _md_table(
+            cc, 4, values=("scenario",)
+        )
+    g = fire.get("restoration_by_risk")
+    if g is not None:
+        out += (
+            "\n\nEfecto de pasar unha unidade de fracción de eucalipto a frondosas sobre a "
+            "probabilidade anual de queima, por quintís da probabilidade base (efectos de grupo "
+            "dos dous axustes DML; o EE combina as dúas clases coma se fosen independentes). Se "
+            "o efecto medrase con p(1−p), a estimación seguiría a columna do motor; se fose "
+            "constante, a do efecto constante.\n\n" + _md_table(g, 5, values=("group",))
+        )
+    return out
 
 
 def _ref_resumo(ref: dict | None, inv: dict | None = None) -> str:
@@ -1183,6 +1252,8 @@ variabilidade meteorolóxica e a incerteza dos efectos.
 
 ![proxeccións](proxeccions.png)
 
+{_risk_scaling_section(fire, proj)}
+
 Sensibilidade: se a plantación futura fose a metade da observada en 2017–2024 (por exemplo,
 porque se manteñen as restricións a novas plantacións):
 
@@ -1209,6 +1280,12 @@ porque se manteñen as restricións a novas plantacións):
   exemplo, a intencionalidade dos lumes ou a propiedade das terras). A táboa de sensibilidade
   indica canto tería que pesar ese factor.
 - **Meteoroloxía.** O índice meteorolóxico procede de seis estacións; non é o FWI oficial.
+- **Efecto da restauración segundo o risco.** O motor supón que o efecto da cuberta medra con
+  p(1−p) (sección 5); os datos dan un efecto medio por clase, non esa forma, e a vantaxe da
+  restauración dirixida fronte á aleatoria depende dela. A mesma hipótese está detrás da
+  prioridade de restauración (probabilidade base × fracción de eucalipto). Ademais, o
+  contraste eucalipto → frondosas é a diferenza de dúas estimacións medias sobre partes
+  distintas de Galicia, non exactamente o efecto de substituír unha pola outra nunha cela.
 
 ## Siglas
 
@@ -1233,6 +1310,8 @@ porque se manteñen as restricións a novas plantacións):
         "native_to_euc_ha": nat,
         "effects": effects_tab.to_dict(orient="records"),
         "contrasts": proj["contrasts"].to_dict(orient="records"),
+        "contrasts_constant_effect": proj["contrasts_constant_effect"].to_dict(orient="records"),
+        "restoration_by_risk": fire["restoration_by_risk"].to_dict(orient="records"),
         "panel": ps,
     }
     (out / "metrics.json").write_text(
