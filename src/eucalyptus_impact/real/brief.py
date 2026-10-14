@@ -27,6 +27,7 @@ from ..reporting import (
     _style,
     fig_gates,
 )
+from .analysis import MAIN_FIRE_MAP
 from .common import GRID_1KM
 from .layers import EUC
 
@@ -430,8 +431,8 @@ Que se conclúe:
 {_experiment_txt(inv.get("experiment"))}
 
 Consecuencia: as cifras de superficie son plausibles, pero a localización do eucalipto píxel a
-píxel é incerta. Os efectos estimados sobre os incendios están atenuados por este erro
-(sección 7).""")
+píxel é incerta. Este erro introduce un nesgo nos efectos estimados sobre os incendios, de
+dirección descoñecida: non se pode supor que os achegue a cero (sección 7).""")
     msec = _mfe_section(mfe, mfe_exp)
     if msec:
         parts.insert(0, msec)
@@ -775,32 +776,38 @@ def _sig(e) -> bool:
 
 
 def _sensitivity_txt(fire: dict) -> str:
+    """The map versions other than the exposure, labelled as post-outcome sensitivity checks.
+
+    They are not corroboration: the backdated 2017 map picks each pixel's classifier by whether
+    it burned after 2017, and the 2024 map is drawn after the fires.
+    """
     ms = fire.get("map_sensitivity")
     if ms is None or ms.empty:
         return ""
-    parts = ", ".join(
-        f"{GL_MAP.get(r.map, r.map)}: {num(r.estimate * 10, 2)}" for r in ms.itertuples()
+    others = ms[ms["map"] != fire.get("exposure_map", MAIN_FIRE_MAP)]
+    if others.empty:
+        return ""
+    parts = "; ".join(
+        f"{GL_MAP_SHORT.get(r.map, r.map)}: {num(r.estimate * 10, 2)}" for r in others.itertuples()
     )
-    sig = [(r.ci_low > 0) or (r.ci_high < 0) for r in ms.itertuples()]
-    same_sign = len({np.sign(r.estimate) for r in ms.itertuples()}) == 1
-    if same_sign and all(sig):
-        return f" As tres versións do mapa dan a mesma conclusión ({parts})."
-    if same_sign:
-        return (
-            f" As versións do mapa coinciden no signo ({parts}), pero non todas son "
-            "distinguibles de cero: o resultado é sensible ao mapa."
-        )
     return (
-        " **A estimación depende do mapa de eucalipto empregado** (puntos porcentuais por "
-        f"cada 10 puntos de eucalipto: {parts}), así que non se debe tomar como un resultado "
-        "firme."
+        " Comprobacións con versións do mapa que usan rexistros posteriores aos lumes (puntos "
+        f"porcentuais por cada 10 puntos de eucalipto): {parts}. Son só comprobacións de "
+        "sensibilidade, non corroboración: o mapa retrodatado escolle o clasificador de cada "
+        "píxel segundo ardese ou non despois de 2017, e o de 2024 é posterior aos lumes."
     )
 
 
+# Map versions (analysis.FIRE_MAPS): labels for the table and short names for the text.
 GL_MAP = {
-    "2017 backdated": "2017 retrodatado",
-    "2017 independent": "2017 independente",
+    MAIN_FIRE_MAP: "2017 independente (principal)",
+    "2017 backdated (post-outcome)": "2017 retrodatado (con datos posteriores aos lumes)",
     "2024 (post-fire)": "2024 (posterior aos lumes)",
+}
+GL_MAP_SHORT = {
+    MAIN_FIRE_MAP: "2017 independente",
+    "2017 backdated (post-outcome)": "2017 retrodatado",
+    "2024 (post-fire)": "2024",
 }
 
 
@@ -869,9 +876,10 @@ def _resumo(res: dict) -> str:
         + (", non distinguible de cero." if not _sig(reg) else ".")
     )
     items.append(
-        f"- **Incendios, 2018–2023.** Mantendo constantes o relevo, a localización, a presión "
-        f"humana, a meteoroloxía e as demais cubertas, {occ_txt}. {shrub_txt}{rv_txt}{reg_txt}"
-        + _sensitivity_txt(fire)
+        "- **Incendios, 2018–2023.** Exposición: o mapa de 2017 clasificado de forma "
+        "independente, co mesmo procedemento en todos os píxeles. Mantendo constantes o relevo, "
+        f"a localización, a presión humana, a meteoroloxía e as demais cubertas, {occ_txt}. "
+        f"{shrub_txt}{rv_txt}{reg_txt}" + _sensitivity_txt(fire)
     )
     nat_e = fire["cover_effects"]["f_native_broadleaf"]
     diff = occ.estimate - nat_e.estimate
@@ -1101,6 +1109,12 @@ anos (sen perda arbórea de Hansen nin queimado de EFFIS) mantense a clase de 20
 ruído do clasificador non crea cambios falsos, e un cambio real precisa de evidencia. Retrodatouse o
 {num(sm["2017"]["share_backdated"] * 100, 3)} % dos píxeles.
 
+O mapa retrodatado é o punto de partida do cambio 2017–2024 (sección 3), pero non a exposición
+nos incendios: nel, que un píxel ardese ou perdese arboredo despois de 2017 decide que
+clasificador lle dá a clase, así que o resultado entraría na exposición. Os efectos sobre os
+incendios (sección 4) usan o mapa de 2017 clasificado de forma independente: as imaxes de 2017
+normalizadas e o mesmo modelo en todos os píxeles.
+
 Superficies. A columna «superficie estimada» corrixe o mapa invertindo a matriz de confusión
 da validación cruzada. Esa corrección só é fiable se as etiquetas son puras e representativas;
 as de OpenStreetMap non o son, así que **tómese como unha comprobación, non como estimación**.
@@ -1135,6 +1149,9 @@ Atribución da perda de cuberta arbórea 2018–2024 (Hansen) a 40 m:
 
 ## 4. Incendios
 
+Exposición: fracción de cada cuberta en 2017 segundo o mapa clasificado de forma independente
+(sección 2), que non depende do que lle pasou a cada píxel despois de 2017.
+
 {_md_table(effects_tab, values=("effect", "method"))}
 
 ![efectos](efectos.png)
@@ -1152,7 +1169,10 @@ Onde é maior o efecto do eucalipto:
 ![grupos](grupos.png)
 
 Sensibilidade ao mapa de eucalipto (efecto sobre a probabilidade anual de queima por unidade
-de fracción):
+de fracción). A primeira fila é a estimación principal. As outras dúas versións usan rexistros
+posteriores aos lumes: o mapa retrodatado escolle o clasificador de cada píxel segundo ardese
+ou non despois de 2017, e o de 2024 é posterior aos lumes. Son comprobacións de sensibilidade,
+non corroboración.
 
 {_md_table(fire["map_sensitivity"].assign(map=fire["map_sensitivity"]["map"].map(GL_MAP)))}
 
@@ -1200,7 +1220,9 @@ porque se manteñen as restricións a novas plantacións):
   clasificadas. A comprobación con GBIF (sección 2) é independente pero oportunista; a
   validación definitiva debe facerse co Mapa Forestal de España ou co IFN4.
 - **Erro do mapa.** As parcelas de inventario mostran que o erro de localización do eucalipto
-  é grande, e ese erro atenúa os efectos cara a cero. Non se aplicou SIMEX porque as parcelas
+  é grande. Ese erro introduce nos efectos un nesgo de dirección descoñecida, e non se pode
+  supor que os achegue a cero: nos mapas retrodatado e de 2024 o erro depende do propio
+  resultado (seccións 2 e 4). Non se aplicou SIMEX porque as parcelas
   (presenza de eucalipto nun círculo de 25 m, sen data) non miden o mesmo ca o píxel, así que
   non dan a varianza do erro.
 - **Incendios.** EFFIS rexistra sobre todo os incendios grandes; os pequenos quedan fóra. Só hai
