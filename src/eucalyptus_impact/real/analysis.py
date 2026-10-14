@@ -287,17 +287,20 @@ def conversion_analysis(cells: pd.DataFrame, maps: dict, L: dict, n_folds=5, see
     burned = np.zeros_like(loss)
     for yr in FIRE_YEARS:
         burned |= L["effis"][f"burned40_{yr}"].astype(bool)
+    # No "corroborated by loss or fire" figure: the backdated 2017 map keeps the 2024 class on
+    # every pixel without Hansen loss 2017-2024 or an EFFIS burn 2018-2023 (species.backdate),
+    # so every recorded transition already lies on a disturbed pixel. Filtering on loss 2018-2024
+    # or fire again only drops pixels whose sole disturbance is a calendar-2017 loss, a timing
+    # filter, and it cannot reject a wrong 2017 class on a pixel that really was disturbed.
     nat2euc = (a == NATIVE) & (b == EUC)
     out["native_to_euc_ha"] = {
         "all_pixels": float(nat2euc.sum() * PIXEL_HA),
         "confident": float((nat2euc & conf).sum() * PIXEL_HA),
-        "confident_with_loss_or_fire": float((nat2euc & conf & (loss | burned)).sum() * PIXEL_HA),
     }
     pine2euc = (a == PINE) & (b == EUC)
     out["pine_to_euc_ha"] = {
         "all_pixels": float(pine2euc.sum() * PIXEL_HA),
         "confident": float((pine2euc & conf).sum() * PIXEL_HA),
-        "confident_with_loss_or_fire": float((pine2euc & conf & (loss | burned)).sum() * PIXEL_HA),
     }
     # Tree-cover loss 2018-2024 attributed at 40 m.
     fire = loss & burned

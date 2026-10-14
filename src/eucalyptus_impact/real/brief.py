@@ -804,6 +804,38 @@ GL_MAP = {
 }
 
 
+# Every 2017 -> 2024 change in the backdated map lies on a pixel with Hansen loss 2017-2024 or
+# an EFFIS burn 2018-2023 by construction (species.backdate keeps the 2024 class everywhere
+# else), so a "corroborated by loss or fire" figure would only repeat that rule.
+_DISTURBED_BY_CONSTRUCTION = (
+    "Todo cambio rexistrado está, por construción, nun píxel con perda arbórea de Hansen "
+    "(2017–2024) ou queimado de EFFIS (2018–2023), porque o mapa de 2017 só se separa do de 2024 "
+    "onde houbo perturbación. Esa coincidencia non é unha comprobación independente: non pode "
+    "descartar unha clase de 2017 errada nun píxel que si se perturbou."
+)
+
+
+def _conversion_resumo(nat: dict) -> str:
+    """Summary bullet for native -> eucalyptus conversion (`conversion_analysis` areas)."""
+    return (
+        f"- **Substitución de bosque autóctono.** Entre 2017 e 2024, {num(nat['confident'])} ha "
+        "pasaron de frondosas autóctonas a eucalipto en píxeles clasificados con fiabilidade nos "
+        "dous anos. Esta é a cifra máis prudente; a diferenza entre mapas tende a sobreestimar o "
+        f"cambio. {_DISTURBED_BY_CONSTRUCTION}"
+    )
+
+
+def _conversion_txt(nat: dict) -> str:
+    """Section 3 paragraph on the native -> eucalyptus conversion figures."""
+    return (
+        "A diferenza entre dous mapas acumula os erros de ambos e sobreestima o cambio (na "
+        "validación sintética, ao redor do dobre). Por iso o informe dá dúas cifras para "
+        f"autóctonas → eucalipto: todos os píxeles, {num(nat['all_pixels'], 3)} ha; e píxeles "
+        f"fiables, {num(nat['confident'], 3)} ha, que é a máis prudente. "
+        f"{_DISTURBED_BY_CONSTRUCTION}"
+    )
+
+
 def _resumo(res: dict) -> str:
     fire, conv, proj = res["fire"], res["conversion"], res["projections"]
     areas, susc = res["areas"], res["susceptibility"]
@@ -823,13 +855,7 @@ def _resumo(res: dict) -> str:
         "unha referencia oficial recente (o MFE25 de 2011 non se puido descargar)."
         + _ref_resumo(res.get("reference"), res.get("inventory"))
     )
-    items.append(
-        f"- **Substitución de bosque autóctono.** Entre 2017 e 2024, {num(nat['confident'])} ha "
-        "pasaron de frondosas autóctonas a eucalipto en píxeles clasificados con fiabilidade nos "
-        f"dous anos; {num(nat['confident_with_loss_or_fire'])} ha diso coinciden ademais cunha "
-        "perda de cuberta arbórea (Hansen) ou cun incendio (EFFIS). Esta última é a cifra máis "
-        "prudente; a diferenza entre mapas tende a sobreestimar o cambio."
-    )
+    items.append(_conversion_resumo(nat))
     if _sig(occ):
         occ_txt = (
             f"un aumento de 10 puntos na fracción de eucalipto cambia a probabilidade anual de "
@@ -1123,11 +1149,7 @@ Transicións cara ao eucalipto, 2017–2024 (píxeles de 40 m):
 
 {_md_table(trans_top[["from", "to", "area_ha", "area_confident_ha"]], 5)}
 
-A diferenza entre dous mapas acumula os erros de ambos e sobreestima o cambio (na validación
-sintética, ao redor do dobre). Por iso o informe dá tres cifras para autóctonas → eucalipto:
-todos os píxeles, {num(nat["all_pixels"], 3)} ha; píxeles fiables, {num(nat["confident"], 3)} ha;
-e píxeles fiables con perda arbórea ou incendio que o corroboren,
-{num(nat["confident_with_loss_or_fire"], 3)} ha. A última é a máis prudente.
+{_conversion_txt(nat)}
 
 Atribución da perda de cuberta arbórea 2018–2024 (Hansen) a 40 m:
 

@@ -189,10 +189,14 @@ What the real-data run established, and what it did not:
 - **Red-edge bands.** Adding Sentinel-2 B05/B07/B8A indices moves eucalyptus F1 only within
   noise (north transfer 0.721 -> 0.727, IFN3 plots 0.453 -> 0.465), so the maps were not
   rebuilt (`species.red_edge_pilot`, `s2.build_period(..., product="re")`).
-- **Native forest.** 2017→2024 native-to-eucalyptus conversion is reported three ways (all
-  pixels 1,477 ha, confident pixels 100 ha, confident pixels corroborated by Hansen loss or
-  fire 89 ha), since map differencing inflates change. With the MFE-trained maps the confident
-  figures fell from 563/484 ha: most of the earlier "conversion" was classification noise.
+- **Native forest.** 2017→2024 native-to-eucalyptus conversion is reported two ways (all
+  pixels 1,477 ha, confident pixels 100 ha), since map differencing inflates change; the
+  confident figure is the prudent one. Every recorded change lies on a pixel with Hansen loss
+  2017-2024 or an EFFIS burn 2018-2023 by construction (the 2017 map is backdated from 2024
+  everywhere else), so a "corroborated by loss or fire" filter adds no protection against
+  classification noise and is no longer reported (it gave 89 ha; the 11 ha it dropped were
+  pixels whose only disturbance was a 2017 loss). With the MFE-trained maps the confident
+  figure fell from 563 ha: most of the earlier "conversion" was classification noise.
 - **Projections.** A year-by-year engine (validated on the simulator, where it overstates
   restoration benefits by about 40%) projects the scenarios to 2040 with paired uncertainty
   bands. Restoring 25% of eucalyptus in priority cells changes mean burnt area by about −960
