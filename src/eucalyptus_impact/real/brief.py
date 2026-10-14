@@ -417,9 +417,7 @@ Clase do mapa de 2024 segundo o tipo de parcela (fracción de parcelas):
 
 Que se conclúe:
 
-- **No agregado o mapa achégase.** O {num(i24["map_euc_share_at_forest_plots"] * 100, 3)} % das
-  parcelas arboradas está no mapa como eucalipto, e o {num(i24["plot_euc_share"] * 100, 3)} %
-  das parcelas arboradas ten eucalipto no inventario de 1998.
+- {_aggregate_txt(i24)}
 - **Parcela a parcela o acordo é baixo**: F1 {num(i24["todo"]["f1"], 2)} en toda Galicia e
   {num(i24["fora_do_norte"]["f1"], 2)} fóra do norte, lonxe do
   {num(transfer_f1, 2)} da proba de transferencia con OpenStreetMap. Esa proba era optimista.
@@ -429,9 +427,10 @@ Que se conclúe:
   son plantacións posteriores ao inventario. {_timing_txt(landsat_inv)}
 {_experiment_txt(inv.get("experiment"))}
 
-Consecuencia: as cifras de superficie son plausibles, pero a localización do eucalipto píxel a
-píxel é incerta. Os efectos estimados sobre os incendios están atenuados por este erro
-(sección 7).""")
+Consecuencia: o IFN3 non serve para validar a superficie de eucalipto do mapa (sería precisa
+unha referencia da mesma data, coa mesma definición e sobre as mesmas parcelas), e a
+localización do eucalipto píxel a píxel é incerta. Os efectos estimados sobre os incendios
+están atenuados por este erro (sección 7).""")
     msec = _mfe_section(mfe, mfe_exp)
     if msec:
         parts.insert(0, msec)
@@ -940,6 +939,22 @@ def _resumo(res: dict) -> str:
     return "\n".join(items)
 
 
+def _aggregate_txt(i: dict) -> str:
+    """The IFN3 aggregate share, said for what it is: a check against gross error only."""
+    n = i.get("n_forest_plots_compared")
+    sobre = f"as {num(n)} parcelas arboradas con clase no mapa" if n else "as parcelas arboradas"
+    return (
+        "**O agregado só descarta un erro groseiro.** Sobre "
+        f"{sobre}, o mapa de 2024 dá eucalipto no "
+        f"{num(i['map_euc_share_at_forest_plots'] * 100, 3)} % e o inventario lista eucalipto no "
+        f"{num(i['plot_euc_share'] * 100, 3)} %. As dúas cifras non miden o mesmo: o inventario "
+        "rexistra eucalipto presente nun círculo de 25 m arredor de 1998, o mapa a clase dominante "
+        "dun píxel de 40 m en 2024. A dominancia nunca supera a presenza, e as plantacións "
+        "posteriores ao inventario empurran en sentido contrario, así que un mapa correcto podería "
+        "quedar moi por riba ou moi por baixo. A semellanza non valida a superficie de eucalipto."
+    )
+
+
 def _ref_resumo(ref: dict | None, inv: dict | None = None) -> str:
     if inv:
         i = inv["2024"]
@@ -947,8 +962,10 @@ def _ref_resumo(ref: dict | None, inv: dict | None = None) -> str:
         return (
             f" Contra {num(inv['n_plots'])} parcelas do IFN3 (arredor de 1998, publicadas en GBIF), o "
             f"mapa dá eucalipto no {num(i['map_euc_share_at_forest_plots'] * 100, 3)} % das "
-            f"parcelas arboradas e as parcelas teñen eucalipto no "
-            f"{num(i['plot_euc_share'] * 100, 3)} %: o total cadra. Parcela a parcela o acordo é "
+            f"parcelas arboradas con clase no mapa e esas mesmas parcelas teñen eucalipto no "
+            f"{num(i['plot_euc_share'] * 100, 3)} %. Non é unha validación da superficie: o "
+            "inventario rexistra presenza en 1998 e o mapa a clase dominante en 2024. "
+            "Parcela a parcela o acordo é "
             f"baixo (F1 {num(f['f1'], 2)} fóra do norte), en parte porque as parcelas son "
             "anteriores a moitas plantacións."
         )
@@ -1057,8 +1074,8 @@ def write_brief(res: dict, out_dir: str | Path) -> Path:
 > {num(sm["2024"]["north_transfer"]["euc_recall"], 2)}) e
 > {num(sm["2017"]["north_transfer"]["euc_f1"], 2)} en 2017. Sen esta corrección era
 > practicamente cero. A comprobación independente coas parcelas do IFN3 en toda Galicia
-> (sección 2) é máis severa: a superficie total cadra, pero parcela a
-> parcela o acordo é baixo.
+> (sección 2) é máis severa: parcela a parcela o acordo é baixo, e como as parcelas son de
+> arredor de 1998 e só rexistran presenza, non serven para validar a superficie total.
 > Os efectos causais dependen de supostos que se explican na sección 7. O efecto sobre a auga
 > **non se puido medir**: hai caudais reais (CAMELS-ES), pero o eucalipto apenas cambia dentro
 > das concas nos anos con datos, e o mapa histórico con Landsat non superou a validación
