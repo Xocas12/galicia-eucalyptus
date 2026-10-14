@@ -27,7 +27,7 @@
 ## Resumo
 
 - **Superficie de eucalipto (mapa).** 442 mil ha en 2024 e 483 mil ha en 2017 (reconto de píxeles; 450 mil ha en 2024 sumando probabilidades). Compáranse co Mapa Forestal de España (MFE50, arredor de 1998) e co IFN3 na sección 2; non hai unha referencia oficial recente (o MFE25 de 2011 non se puido descargar). Contra 6 903 parcelas do IFN3 (arredor de 1998, publicadas en GBIF), o mapa dá eucalipto no 30,4 % das parcelas arboradas e as parcelas teñen eucalipto no 27,5 %: o total cadra. Parcela a parcela o acordo é baixo (F1 0,45 fóra do norte), en parte porque as parcelas son anteriores a moitas plantacións.
-- **Substitución de bosque autóctono.** Entre 2017 e 2024, 99,68 ha pasaron de frondosas autóctonas a eucalipto en píxeles clasificados con fiabilidade nos dous anos; 89,12 ha diso coinciden ademais cunha perda de cuberta arbórea (Hansen) ou cun incendio (EFFIS). Esta última é a cifra máis prudente; a diferenza entre mapas tende a sobreestimar o cambio.
+- **Substitución de bosque autóctono.** Entre 2017 e 2024, 99,68 ha pasaron de frondosas autóctonas a eucalipto en píxeles clasificados con fiabilidade nos dous anos. Esta é a cifra máis prudente; a diferenza entre mapas tende a sobreestimar o cambio. Todo cambio rexistrado está, por construción, nun píxel con perda arbórea de Hansen (2017–2024) ou queimado de EFFIS (2018–2023), porque o mapa de 2017 só se separa do de 2024 onde houbo perturbación. Esa coincidencia non é unha comprobación independente: non pode descartar unha clase de 2017 errada nun píxel que si se perturbou.
 - **Incendios, 2018–2023.** Mantendo constantes o relevo, a localización, a presión humana, a meteoroloxía e as demais cubertas, un aumento de 10 puntos na fracción de eucalipto cambia a probabilidade anual de queima en -0,26 puntos porcentuais (IC 95 %: -0,46 a -0,07). O mato non mostra un efecto distinguible de cero. O valor de robustez é 0,017: un factor de confusión non medido con ese R² parcial co tratamento e co resultado anularía a estimación. No cadro do norte, onde están as etiquetas de OpenStreetMap, o efecto é -0,14 puntos porcentuais por cada 10 puntos de eucalipto (IC 95 %: -0,38 a 0,11; 24 anos-cela queimados), non distinguible de cero. As tres versións do mapa dan a mesma conclusión (2017 retrodatado: -0,26, 2017 independente: -0,16, 2024 (posterior aos lumes): -0,46).
 - **Eucalipto fronte a frondosas autóctonas.** O efecto anterior compárase coa agricultura e outros usos, que son os que máis arden. Fronte ás frondosas autóctonas, que son as que menos arden, 10 puntos de eucalipto no canto de frondosas cambian a probabilidade anual de queima en 0,23 puntos porcentuais (IC 95 % aproximado: -0,12 a 0,57; aproximado porque combina dúas estimacións separadas). Este é o contraste que importa para a restauración.
 - **Severidade.** Entre as celas queimadas, o efecto do eucalipto sobre a clase de severidade EFFIS é -0,21 por unidade de fracción (EE 0,33; non distinguible de cero; n = 2 146).
@@ -279,11 +279,7 @@ Transicións cara ao eucalipto, 2017–2024 (píxeles de 40 m):
 | agricultura | eucalipto | 7 943 | 1 855 |
 | outros | eucalipto | 717,6 | 56,48 |
 
-A diferenza entre dous mapas acumula os erros de ambos e sobreestima o cambio (na validación
-sintética, ao redor do dobre). Por iso o informe dá tres cifras para autóctonas → eucalipto:
-todos os píxeles, 1 477 ha; píxeles fiables, 99,7 ha;
-e píxeles fiables con perda arbórea ou incendio que o corroboren,
-89,1 ha. A última é a máis prudente.
+A diferenza entre dous mapas acumula os erros de ambos e sobreestima o cambio (na validación sintética, ao redor do dobre). Por iso o informe dá dúas cifras para autóctonas → eucalipto: todos os píxeles, 1 477 ha; e píxeles fiables, 99,7 ha, que é a máis prudente. Todo cambio rexistrado está, por construción, nun píxel con perda arbórea de Hansen (2017–2024) ou queimado de EFFIS (2018–2023), porque o mapa de 2017 só se separa do de 2024 onde houbo perturbación. Esa coincidencia non é unha comprobación independente: non pode descartar unha clase de 2017 errada nun píxel que si se perturbou.
 
 Atribución da perda de cuberta arbórea 2018–2024 (Hansen) a 40 m:
 
