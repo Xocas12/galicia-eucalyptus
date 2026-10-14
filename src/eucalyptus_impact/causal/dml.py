@@ -8,7 +8,7 @@ blocks, because fire and hydrology outcomes are spatially correlated.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field, fields
+from dataclasses import dataclass, field, fields, replace
 
 import numpy as np
 import pandas as pd
@@ -27,12 +27,20 @@ class EffectEstimate:
     n: int
     truth: float | None = None
     reliability: float | None = None
+    # Critical value of the 95% interval: 1.96 by default, t(G-1) when the SE is clustered on
+    # few blocks (see `at_cluster_scale`).
+    crit: float = 1.96
     # Cross-fitted residuals etc. for sensitivity analysis and subgroup effects; not serialised.
     diag: dict = field(default_factory=dict, repr=False, compare=False)
 
     @property
     def ci95(self) -> tuple[float, float]:
-        return self.estimate - 1.96 * self.se, self.estimate + 1.96 * self.se
+        return self.estimate - self.crit * self.se, self.estimate + self.crit * self.se
+
+    @property
+    def significant(self) -> bool:
+        """Whether the 95% interval excludes zero."""
+        return bool(abs(self.estimate) > self.crit * self.se)
 
     @property
     def covers_truth(self) -> bool | None:
@@ -123,6 +131,29 @@ def reclustered_se(est: EffectEstimate, groups) -> float:
     jac = float(np.mean(r["res_d"] ** 2)) - r["d_error_var"]
     psi = r["res_d"] * r["res_y"] - est.estimate * (r["res_d"] ** 2 - r["d_error_var"])
     return cluster_se(psi, np.asarray(groups), jac)
+
+
+def t_crit(n_clusters: int, level: float = 0.95) -> float:
+    """Two-sided t(G-1) critical value for a CR1 SE on G clusters (normal when G is large)."""
+    from scipy import stats
+
+    return float(stats.t.ppf(0.5 + level / 2, max(int(n_clusters) - 1, 1)))
+
+
+def at_cluster_scale(est: EffectEstimate, groups) -> EffectEstimate:
+    """The same DML estimate with its SE clustered on `groups` and a t(G-1) critical value.
+
+    The point estimate and the cross-fitting folds are unchanged; only the inference moves to
+    the new clustering. `diag["groups"]` becomes `groups`, so subgroup effects computed from the
+    result (`group_effects`) are clustered the same way.
+    """
+    groups = np.asarray(groups)
+    return replace(
+        est,
+        se=reclustered_se(est, groups),
+        crit=t_crit(len(np.unique(groups))),
+        diag={**est.diag, "groups": groups},
+    )
 
 
 def group_effects(est: EffectEstimate, labels, truth=None) -> pd.DataFrame:

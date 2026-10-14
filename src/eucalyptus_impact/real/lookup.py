@@ -114,13 +114,17 @@ def eucalyptus_contribution(effects: dict, f_euc: float, other: str | None = Non
     Against agriculture/other (the effects' baseline) when `other` is None; against another
     cover (e.g. native broadleaf) as the difference of the two effects otherwise, with the SEs
     combined as if independent (they come from separate fits).
+
+    The SEs are clustered at the scale `euc real run` chose from the block-size table, and
+    `crit` is that clustering's t(G-1) critical value (1.96 for files written before it).
     """
+    crit = float(effects.get("crit", 1.96))
     e, se = effects["cover_effects"]["f_eucalyptus"]
     if other is not None:
         e2, se2 = effects["cover_effects"][f"f_{other}"]
         e, se = e - e2, float(np.hypot(se, se2))
-    est, half = e * f_euc, 1.96 * se * f_euc
-    return {"estimate": est, "ci": [est - half, est + half], "significant": abs(e) > 1.96 * se}
+    est, half = e * f_euc, crit * se * f_euc
+    return {"estimate": est, "ci": [est - half, est + half], "significant": abs(e) > crit * se}
 
 
 def nearest_plot(x: float, y: float, max_km: float = 1.5) -> dict | None:

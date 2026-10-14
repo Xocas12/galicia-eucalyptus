@@ -28,7 +28,7 @@ from sklearn.ensemble import HistGradientBoostingClassifier, HistGradientBoostin
 from sklearn.inspection import permutation_importance
 from sklearn.metrics import brier_score_loss, roc_auc_score
 
-from ..causal.dml import dml_plr, group_effects, ols, reclustered_se
+from ..causal.dml import at_cluster_scale, dml_plr, group_effects, ols, reclustered_se, t_crit
 from ..causal.sensitivity import bias_bound, robustness_value
 from ..dynamic import COVER, estimate_components, project, scenario_contrasts
 from ..geo.grid import block_ids
@@ -133,8 +133,67 @@ def cell_year_panel(cells: pd.DataFrame) -> pd.DataFrame:
 
 CONF = [*STATIC, "fwi", "year"]
 
+# Block sizes of the SE-by-block table. The cross-fitting folds and the first clustering use 20
+# km blocks, a scale set in advance (docs/SCOPE.md); the fire SEs are then clustered at the
+# smallest scale from 20 km up beyond which the SE stops rising (`choose_cluster_scale`).
+SE_BLOCKS_KM = (5, 10, 20, 40, 80)
+PRESET_BLOCK_KM = 20
 
-def fire_analysis(panel: pd.DataFrame, n_folds=5, seed=0) -> dict:
+
+def panel_blocks(panel: pd.DataFrame, block_km: float, grid=GRID_1KM) -> np.ndarray:
+    """Spatial block id of each panel row at `block_km`.
+
+    Same grid as `block_ids` (counted from the bbox origin), so the 20 km ids are the panel's
+    `block` column and the blocks nest across the 5-80 km scales.
+    """
+    return block_ids(grid, block_km)[panel["row"].to_numpy(), panel["col"].to_numpy()]
+
+
+def se_by_block(est, panel: pd.DataFrame, sizes=SE_BLOCKS_KM, grid=GRID_1KM) -> pd.DataFrame:
+    """SE of a DML estimate re-clustered on blocks of each size, with the number of blocks."""
+    rows = []
+    for k in sizes:
+        gk = panel_blocks(panel, k, grid)
+        rows.append({"block_km": k, "n_blocks": len(np.unique(gk)), "se": reclustered_se(est, gk)})
+    return pd.DataFrame(rows)
+
+
+def choose_cluster_scale(table: pd.DataFrame, preset: float = PRESET_BLOCK_KM) -> dict:
+    """Smallest block size, from `preset` up, at which the SE stops rising.
+
+    A scale is taken as adequate when the next larger scale in the table does not give a larger
+    SE. When the SE rises at every step (score correlation reaches past the largest block), the
+    largest block is used and `still_rising` is True: its interval, with a t(G-1) critical value
+    because there are few such blocks, is then still a lower bound on the honest width.
+    """
+    t = table[table["block_km"] >= preset].sort_values("block_km").reset_index(drop=True)
+    pick, rising = len(t) - 1, True
+    for i in range(len(t) - 1):
+        if t.loc[i + 1, "se"] <= t.loc[i, "se"]:
+            pick, rising = i, False
+            break
+    return _scale_row(t.loc[pick], preset) | {"still_rising": rising}
+
+
+def _scale_row(r, preset: float) -> dict:
+    return {
+        "block_km": float(r["block_km"]),
+        "n_blocks": int(r["n_blocks"]),
+        "se": float(r["se"]),
+        "crit": t_crit(int(r["n_blocks"])),
+        "preset_km": float(preset),
+    }
+
+
+def fire_analysis(panel: pd.DataFrame, n_folds=5, seed=0, block_km: float | None = None) -> dict:
+    """Fire DML estimates, with SEs clustered at a scale the data support.
+
+    The fits are cross-fitted on the 20 km blocks. The SE of the occurrence effect is then
+    re-clustered at 5-80 km (`se_by_block`), and the DML estimates are reported at the scale
+    chosen from that table (`choose_cluster_scale`; `block_km` overrides it, so that map versions
+    are compared at one scale), with a t(G-1) critical value. The naive OLS estimates and the
+    labelled-region estimate (a 100 km square, too few large blocks) stay at 20 km.
+    """
     g = panel["block"].to_numpy()
     y = panel["burned"].to_numpy().astype(float)
     out = {}
@@ -145,6 +204,16 @@ def fire_analysis(panel: pd.DataFrame, n_folds=5, seed=0) -> dict:
         cover_effects[c] = dml_plr(
             y, panel[c].to_numpy(), X_all(c), g, n_folds, seed, name=f"{c[2:]} -> P(burn)"
         )
+    out["se_by_block"] = se_by_block(cover_effects["f_eucalyptus"], panel)
+    scale = choose_cluster_scale(out["se_by_block"])
+    if block_km is not None and block_km != scale["block_km"]:
+        tab = out["se_by_block"].set_index("block_km")
+        scale = _scale_row(tab.loc[block_km].to_dict() | {"block_km": block_km}, PRESET_BLOCK_KM)
+        scale["still_rising"] = None  # imposed from another fit, not chosen on this one
+    out["cluster_scale"] = scale
+    gk = panel_blocks(panel, scale["block_km"])
+    out["se_preset"] = {c: e.se for c, e in cover_effects.items()}
+    cover_effects = {c: at_cluster_scale(e, gk) for c, e in cover_effects.items()}
     out["cover_effects"] = cover_effects
     occ = cover_effects["f_eucalyptus"]
     occ.name = "eucalyptus -> P(burn)"
@@ -158,6 +227,7 @@ def fire_analysis(panel: pd.DataFrame, n_folds=5, seed=0) -> dict:
         seed,
         name="eucalyptus -> burned share",
     )
+    out["burned_frac_dml"] = at_cluster_scale(out["burned_frac_dml"], gk)
     out["burned_frac_naive"] = ols(
         panel["burned_frac"], panel["f_eucalyptus"], g, name="eucalyptus -> burned share"
     )
@@ -172,6 +242,7 @@ def fire_analysis(panel: pd.DataFrame, n_folds=5, seed=0) -> dict:
         seed,
         name="eucalyptus -> severity (EFFIS class)",
     )
+    out["severity_dml"] = at_cluster_scale(out["severity_dml"], panel_blocks(b, scale["block_km"]))
     out["severity_naive"] = ols(
         b["severity"], b["f_eucalyptus"], b["block"], name="eucalyptus -> severity (EFFIS class)"
     )
@@ -209,18 +280,6 @@ def fire_analysis(panel: pd.DataFrame, n_folds=5, seed=0) -> dict:
             }
         )
     out["sensitivity"] = pd.DataFrame(rows)
-    xy = panel[["x_km", "y_km"]].to_numpy()
-    out["se_by_block"] = pd.DataFrame(
-        [
-            {
-                "block_km": k,
-                "se": reclustered_se(
-                    occ, (np.floor(xy[:, 0] / k) * 10_000 + np.floor(xy[:, 1] / k)).astype(int)
-                ),
-            }
-            for k in (5, 10, 20, 40, 80)
-        ]
-    )
     return out
 
 
@@ -422,12 +481,17 @@ def projections(
     }
 
 
-def map_sensitivity(cells: pd.DataFrame, seed: int = 0) -> pd.DataFrame:
+def map_sensitivity(
+    cells: pd.DataFrame, seed: int = 0, block_km: float | None = None
+) -> pd.DataFrame:
     """Fire-occurrence effect of eucalyptus under different exposure maps.
 
     The estimate moved between map versions during development, so it is reported for the
     backdated 2017 map (the main exposure), the independently classified 2017 map, and the 2024
     map (measured after the fires, so only a sensitivity check).
+
+    Every row is clustered at `block_km` (the scale chosen on the main fit; each version picks
+    its own when None), with a t(G-1) critical value; `se_20km` is the SE at the preset scale.
     """
     versions = {"2017 backdated": "", "2017 independent": "_ind", "2024 (post-fire)": "_end"}
     rows = []
@@ -437,11 +501,14 @@ def map_sensitivity(cells: pd.DataFrame, seed: int = 0) -> pd.DataFrame:
         c2 = cells.copy()
         for c in COVER:
             c2[c] = cells[c + suf] if suf else cells[c]
-        est = fire_analysis(cell_year_panel(c2), seed=seed)["occurrence_dml"]
+        fa = fire_analysis(cell_year_panel(c2), seed=seed, block_km=block_km)
+        est = fa["occurrence_dml"]
         rows.append(
             {
                 "map": name,
                 "estimate": est.estimate,
+                "se_20km": fa["se_preset"]["f_eucalyptus"],
+                "block_km": fa["cluster_scale"]["block_km"],
                 "se": est.se,
                 "ci_low": est.ci95[0],
                 "ci_high": est.ci95[1],
@@ -483,8 +550,16 @@ def save_cell_scores(cells: pd.DataFrame, fire: dict, susc: dict, proj: dict) ->
     df["priority_pct"] = pd.Series(proj["priority"]).rank(pct=True).to_numpy()
     df["targeted"] = proj["targeted"] > 0
     df.to_parquet(INTERIM / "cell_scores.parquet")
+    # SEs at the chosen cluster scale, with its critical value (the lookup's `significant` flag).
     eff = {c: [e.estimate, e.se] for c, e in fire["cover_effects"].items()}
-    meta = {"cover_effects": eff, "base_rate": susc["base_rate"], "auc": susc["auc"]}
+    sc = fire["cluster_scale"]
+    meta = {
+        "cover_effects": eff,
+        "crit": sc["crit"],
+        "cluster_km": sc["block_km"],
+        "base_rate": susc["base_rate"],
+        "auc": susc["auc"],
+    }
     (INTERIM / "fire_effects.json").write_text(json.dumps(meta, indent=1), encoding="utf-8")
 
 
@@ -501,7 +576,9 @@ def run_real(seed: int = 0) -> dict:
         for p in ("2017", "2024")
     }
     res["fire"] = fire_analysis(panel, seed=seed)
-    res["fire"]["map_sensitivity"] = map_sensitivity(cells, seed=seed)
+    res["fire"]["map_sensitivity"] = map_sensitivity(
+        cells, seed=seed, block_km=res["fire"]["cluster_scale"]["block_km"]
+    )
     res["fire"]["plot_check"] = plot_fire_check(cells, L, seed=seed)
     log.info("fire done")
     res["susceptibility"] = susceptibility(panel, cells, seed=seed)

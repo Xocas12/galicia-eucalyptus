@@ -176,10 +176,18 @@ What the real-data run established, and what it did not:
   times as often as unchanged pixels (the gate requires 2). It is gated out of the water study.
 - **Fire (EFFIS 2018–2023, 29,565 cells × 6 years).** Relative to agriculture and other cover,
   10 more points of eucalyptus lower annual burn probability by 0.26 pp (95% CI −0.46 to
-  −0.07; robustness value 0.017, so a weak confounder could explain it). Against native
-  broadleaf, eucalyptus raises it by 0.23 pp, but the interval includes zero (−0.12 to 0.57).
-  All three map versions now agree and are significant (2017 backdated −0.26, 2017 independent
-  −0.16, 2024 −0.46). No severity effect is detectable.
+  −0.07 with SEs clustered on 20 km blocks; robustness value 0.017, so a weak confounder could
+  explain it). Against native broadleaf, eucalyptus raises it by 0.23 pp, but the interval
+  includes zero (−0.12 to 0.57). All three map versions agree in sign (2017 backdated −0.26,
+  2017 independent −0.16, 2024 −0.46). They are not robustly significant: the brief's
+  block-size table shows the occurrence SE still rising at every scale up to 80 km (0.0105 at
+  20 km, 0.0120 at 40 km, 0.0137 at 80 km), so score correlation reaches past the 20 km blocks.
+  With 80 km clustering the headline interval is −0.53 to +0.004 pp and includes zero, and the
+  2017 independent row, whose 20 km upper bound is −0.00002 pp, loses significance under any
+  larger SE. The pipeline now clusters the fire SEs at the smallest scale from 20 km up at which
+  the SE stops rising, or at the largest block with a t(G−1) critical value when it never does,
+  and the brief says which; the numbers here predate that change and have not been re-run. No
+  severity effect is detectable.
 - **Ground check of the fire result.** IFN3 plots record where eucalyptus was around 1998,
   with no map error. Plot-level burn rates 2018-2023 (EFFIS): 0.14%/yr on eucalyptus plots vs
   0.38% elsewhere; with the same controls the difference is -0.05 pp (95% CI -0.16 to 0.05),

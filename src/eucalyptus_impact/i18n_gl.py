@@ -113,6 +113,8 @@ GL: dict[str, str] = {
     "max_bias_r2_0.02": "nesgo máx. (R² = 0,02)",
     "max_bias_r2_0.05": "nesgo máx. (R² = 0,05)",
     "block_km": "bloque (km)",
+    "n_blocks": "bloques",
+    "se_20km": "EE (20 km)",
     "scenario": "escenario",
     "d_eucalyptus_ha": "Δ eucalipto (ha)",
     "d_burned_ha_simulated": "Δ queimado simulado (ha/ano)",
