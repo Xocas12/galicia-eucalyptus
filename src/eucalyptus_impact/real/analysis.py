@@ -5,13 +5,15 @@ Design:
 - Exposure: cover fractions in a 2017 map (Nov 2016 - Sep 2017 imagery; the L2A archive starts
   in Nov 2016), fixed across the outcome years. The main version (`FIRE_MAPS`) is the 2017
   imagery classified by the 2024 model on every pixel: no 2018-2023 EFFIS burn and no
-  2017-2024 Hansen loss decides any pixel's class. (The model's MFE50 labels and the 2017
-  radiometric normalisation are fitted on undisturbed pixels, but both apply to every pixel
-  alike.) The backdated 2017 map does not have that property. It keeps the 2024 class only on pixels with no Hansen loss in 2017-2024 and no
-  EFFIS burn in 2018-2023, so whether a pixel later burned decides which classifier labels it,
-  and the outcome leaks into the exposure. That map and the 2024 one (drawn after the fires)
-  are post-outcome sensitivity checks (`map_sensitivity`), not corroboration. The backdated
-  map is still the start of the 2017 -> 2024 change window (conversion, projections).
+  2017-2024 Hansen loss of a pixel decides that pixel's class. (The model's MFE50 labels and
+  the 2017 radiometric normalisation are fitted on pixels with no recorded loss or burn, so
+  those records do shape the fits, but both fits apply to every pixel alike.) The backdated
+  2017 map does not have that property. It keeps the 2024 class only on pixels with no Hansen
+  loss in 2017-2024 and no EFFIS burn in 2018-2023, so whether a pixel later burned decides
+  which classifier labels it, and the outcome leaks into the exposure. That map and the 2024
+  one (drawn after the fires) are post-outcome sensitivity checks (`map_sensitivity`), not
+  corroboration. The backdated map is still the start of the 2017 -> 2024 change window
+  (conversion, projections).
 - Fire outcomes: EFFIS burned share and severity class, 2018-2023 (cell-years).
 - Confounders: terrain, distance to the sea, location (x, y), buildings, distance to settlements,
   tree cover in 2000, forest loss 2001-2016, the other cover fractions, fire weather (station

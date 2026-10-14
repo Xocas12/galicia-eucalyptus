@@ -105,9 +105,14 @@ has the ingestion adapters. The adapters are written but **have not been run fro
 - **Effect (causal):** partially linear DML, *Y = θ·D + g(X) + ε*, with cross-fitting on spatial
   folds and standard errors clustered by 20 km block. Confounders *X* are climate, weather, terrain,
   human pressure and the other cover fractions. Outcomes are occurrence and dNBR severity.
-- **Exposure:** cover fractions from a map built only from information dated before the first
-  outcome year (on real data, the 2017 imagery classified the same way on every pixel). A map
-  that uses later records, such as one backdated from 2024 wherever nothing burned or was
+- **Exposure:** cover fractions from a map in which nothing recorded about a pixel after 2017
+  decides that pixel's class. On real data that is the 2017 imagery classified by one model on
+  every pixel. The map is not built only from pre-2018 information: the classifier is trained on
+  2024 imagery, with MFE50 labels kept only on pixels with no Hansen loss since 2001 and no EFFIS
+  burn in 2018-2023, and the 2017 imagery is quantile-normalised to 2024 on pixels with no loss
+  in 2017-2024 and no burn in 2018-2023. Those fits apply to every pixel alike. Fitting them
+  without the later records too has not been tried; it needs a real-data re-run. A map that uses
+  later records pixel by pixel, such as one backdated from 2024 wherever nothing burned or was
   cleared, lets the outcome pick each pixel's class; it is a sensitivity check only.
 - Robustness: propensity-matched comparison, placebo outcome (fire in the year *before* the
   plantation was established), sensitivity to block size.
