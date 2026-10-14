@@ -129,13 +129,27 @@ def project(
     n_sims: int = 30,
     seed: int = 0,
     theta_se: np.ndarray | None = None,
+    theta_cov: np.ndarray | None = None,
 ) -> pd.DataFrame:
     """Simulate `n_sims` weather/fire paths; returns per-year mean and 5-95% bands.
 
     policy: "bau", "cap" (no new eucalyptus) or "restore" (cap, plus eucalyptus in
     `restore_cells` returned to native broadleaf at 3/horizon per year). Parameter uncertainty in
-    the fire effects is propagated by drawing theta from N(theta, theta_se^2) in each simulation.
+    the fire effects is propagated by drawing theta in each simulation from the multivariate
+    normal N(theta, theta_cov). The per-class effects come from fits on the same rows and
+    clusters, so their errors are correlated, and a restoration contrast (eucalyptus -> native)
+    depends on that correlation. `theta_se` alone means independent draws, N(theta, diag(se^2)).
     """
+    if theta_cov is not None and theta_se is not None:
+        raise ValueError("pass theta_cov or theta_se, not both")
+    if theta_se is not None:
+        theta_cov = np.diag(np.asarray(theta_se, float) ** 2)
+    draw = None
+    if theta_cov is not None:
+        # Symmetric square root; works for singular covariances (e.g. zero rows for the baseline
+        # classes), where a Cholesky factor does not exist.
+        w, v = np.linalg.eigh(np.asarray(theta_cov, float))
+        draw = v * np.sqrt(np.clip(w, 0, None)) @ v.T
     rng = np.random.default_rng(seed)
     n = len(f0)
     # Local scaling of the average causal effects: under a logit-type hazard, the effect of cover
@@ -146,8 +160,8 @@ def project(
     rows = []
     for s in range(n_sims):
         th = comp.theta.copy()
-        if theta_se is not None:
-            th = th + rng.standard_normal(len(th)) * theta_se
+        if draw is not None:
+            th = th + draw @ rng.standard_normal(len(th))
         f = f0.copy()
         recent = np.zeros((3, n))
         for t in range(1, horizon_years + 1):
