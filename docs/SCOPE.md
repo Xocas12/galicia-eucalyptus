@@ -168,6 +168,20 @@ has the ingestion adapters. The adapters are written but **have not been run fro
   (re-estimate with posterior class probabilities).
 - *Reverse causality:* fire → plantation is modelled explicitly with lagged cover (cover at t−1
   → fire at t).
+- *Conversion of open land is invisible to the backdated maps:* the 2017 map keeps the 2024
+  class wherever Hansen shows no tree-cover loss and EFFIS no burn, so real change needs that
+  evidence. Hansen records tree-cover loss, not planting, and nothing at all where tree cover
+  in 2000 was below 30%. Shrubland or farmland planted with eucalyptus, or colonised by it,
+  without a fire keeps its 2024 class in 2017 and never shows as conversion. So the
+  shrub → eucalyptus and agriculture → eucalyptus areas are incomplete in an unknown
+  direction; the BAU planting rate, calibrated on the recorded gross gain, may be too low,
+  so BAU is not an upper bound (the brief runs the rate at half and at double); and the
+  fire → plantation estimate is the conversion recorded on burnt land, not
+  P(convert | fire) − P(convert | no fire), and leans upward. The brief bounds the missing
+  component with the independent 2017 classification: backdated pixels it calls
+  non-eucalyptus that 2024 maps confidently as eucalyptus (real undisturbed conversion plus
+  2017 classifier error). Native → eucalyptus is largely unaffected, since it means felling
+  trees that Hansen usually records.
 - *Scale:* 1 km cells mix land uses. Fractions rather than dominant class are used for all effects.
 
 ## 7. Deliverables and milestones

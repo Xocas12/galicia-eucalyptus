@@ -42,7 +42,14 @@ from .reference import (
     landsat_inventory_check,
     reference_check,
 )
-from .species import CLASS_NAMES, PIXEL_HA, area_table, species_maps, transition_table
+from .species import (
+    CLASS_NAMES,
+    PIXEL_HA,
+    area_table,
+    species_maps,
+    stable_since,
+    transition_table,
+)
 from .water import water_analysis
 
 FIRE_YEARS = list(range(2018, 2024))
@@ -277,8 +284,59 @@ def susceptibility(panel: pd.DataFrame, cells: pd.DataFrame, n_folds=5, seed=0) 
     }
 
 
+def undisturbed_gain_bound(maps: dict, stable: np.ndarray, conf: int = 70) -> dict:
+    """Upper bound on 2017-2024 eucalyptus gain that the backdated 2017 map cannot record.
+
+    Backdating copies the 2024 class into 2017 wherever there was no Hansen loss and no EFFIS
+    burn. Hansen records tree-cover loss, not planting, and has no loss at all where
+    treecover2000 < 30, so shrubland or farmland planted with eucalyptus (or colonised by it)
+    without a fire keeps its 2024 class in 2017 and the conversion never shows.
+
+    The independent 2017 classification still sees those pixels. A backdated pixel that it
+    calls something other than eucalyptus, and that 2024 maps confidently as eucalyptus, was
+    either converted without disturbance or misread by the weaker 2017 classifier. The count is
+    an envelope (real undisturbed conversion plus 2017 classifier error), not an estimate. Only
+    the 2024 confidence is applied: the independent map's own confidence is not cached, which
+    widens the envelope.
+
+    `recorded_*` is the gross gain the backdated map does record between confidently mapped
+    pixels (the same pixels as `cell_frame`'s `gross_gain`, pooled instead of averaged per
+    cell). The annual rates divide by the seven years 2017-2024.
+    """
+    a, b = maps["class40_2017"], maps["class40_2024"]
+    ind = maps["class40_2017_independent"]
+    pa, pb = maps["pmax40_2017"], maps["pmax40_2024"]
+    kept = stable & (b < 255)
+    hidden = kept & (ind < 255) & (ind != EUC) & (b == EUC) & (pb >= conf)
+    base = (pa >= conf) & (pb >= conf) & (a < 255) & (b < 255) & (a != EUC)
+    recorded = base & (b == EUC)
+    hidden_ha = float(hidden.sum() * PIXEL_HA)
+    recorded_ha = float(recorded.sum() * PIXEL_HA)
+    base_ha = float(base.sum() * PIXEL_HA)
+    years = 7
+    return {
+        "hidden_ha": hidden_ha,
+        "hidden_by_source_ha": {
+            CLASS_NAMES[k]: float((hidden & (ind == k)).sum() * PIXEL_HA)
+            for k in range(len(CLASS_NAMES))
+            if k != EUC
+        },
+        "recorded_ha": recorded_ha,
+        "base_ha": base_ha,
+        "recorded_rate": recorded_ha / base_ha / years if base_ha > 0 else float("nan"),
+        # Under the envelope the hidden pixels were not eucalyptus in 2017, so they join the base.
+        "envelope_rate": (
+            (recorded_ha + hidden_ha) / (base_ha + hidden_ha) / years
+            if base_ha + hidden_ha > 0
+            else float("nan")
+        ),
+    }
+
+
 def conversion_analysis(cells: pd.DataFrame, maps: dict, L: dict, n_folds=5, seed=0) -> dict:
     out = {"transitions": transition_table(maps)}
+    if "class40_2017_independent" in maps:
+        out["undisturbed_gain_bound"] = undisturbed_gain_bound(maps, stable_since(L, 2017))
     a, b = maps["class40_2017"], maps["class40_2024"]
     pa, pb = maps["pmax40_2017"], maps["pmax40_2024"]
     conf = (pa >= 70) & (pb >= 70)
@@ -317,9 +375,12 @@ def conversion_analysis(cells: pd.DataFrame, maps: dict, L: dict, n_folds=5, see
     out["loss_attribution"]["attributed_share"] = (
         out["loss_attribution"]["attributed"] / out["loss_attribution"]["attributed"].sum()
     )
-    # Fire -> plantation: does burning in 2018-2021 raise gross conversion to eucalyptus by
-    # 2024? (Gross conversion, not net change: burned eucalyptus canopy mapped as shrub in 2024
-    # would otherwise count as negative gain.)
+    # Fire -> plantation: gross conversion to eucalyptus by 2024 regressed on the share burned
+    # in 2018-2021. (Gross conversion, not net change: burned eucalyptus canopy mapped as shrub
+    # in 2024 would otherwise count as negative gain.) On open land the backdated map can only
+    # record conversion that followed a fire, while undisturbed pixels stay in the denominator
+    # as zeros, so this is conversion recorded on burnt land, not P(convert | fire) -
+    # P(convert | no fire), and it leans upward.
     cs = cells[cells["gross_gain"].notna() & (cells["n_base_px"] >= 50)]
     y = cs["gross_gain"]
     X = cs[[*STATIC, *COVER[1:5], "neigh_euc"]].to_numpy()
@@ -402,21 +463,27 @@ def projections(
     }
     for t in trajs.values():
         t["year"] = t["year"] + 2024
-    # Sensitivity: BAU conversion at half the 2017-2024 average (e.g. if the post-2021
-    # planting restrictions hold).
+    # Sensitivity of the planting rate in both directions. Half: e.g. if the post-2021 planting
+    # restrictions hold. Double: the calibration target misses conversion of open land without
+    # fire (the backdated map cannot record it), so the observed rate may be too low.
     import copy
 
-    c2 = copy.copy(comp)
-    c2.conv_rate = comp.conv_rate * 0.5
-    trajs_half = {
-        "BAU": project(f0, c2, H, "bau", **kw),
-        "Cap / moratorium": project(f0, c2, H, "cap", **kw),
-    }
+    def rescaled(factor):
+        c2 = copy.copy(comp)
+        c2.conv_rate = comp.conv_rate * factor
+        return scenario_contrasts(
+            {
+                "BAU": project(f0, c2, H, "bau", **kw),
+                "Cap / moratorium": project(f0, c2, H, "cap", **kw),
+            }
+        )
+
     return {
         "components": comp,
         "trajectories": trajs,
         "contrasts": scenario_contrasts(trajs),
-        "contrasts_half_conversion": scenario_contrasts(trajs_half),
+        "contrasts_half_conversion": rescaled(0.5),
+        "contrasts_double_conversion": rescaled(2.0),
         "targeted": targeted,
         "priority": score,
     }

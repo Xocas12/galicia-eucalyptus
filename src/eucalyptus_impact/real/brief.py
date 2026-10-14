@@ -774,6 +774,44 @@ def _sig(e) -> bool:
     return abs(e.estimate) > 1.96 * e.se
 
 
+def _undisturbed_txt(conv: dict) -> str:
+    """Section 3: what the backdated map cannot see on open land, and the bound on it."""
+    caveat = (
+        "Isto vale para autóctonas → eucalipto, porque esa conversión esixe cortar árbores e "
+        "Hansen adoita rexistralo. **Non vale para mato → eucalipto nin para agricultura → "
+        "eucalipto.** O mapa de 2017 retrodatado mantén a clase de 2024 en todo píxel sen "
+        "perda arbórea nin incendio, e Hansen rexistra perda de cuberta arbórea, non "
+        "plantacións (e ningunha perda onde a cuberta arbórea de 2000 era inferior ao 30 %). "
+        "Un mato ou unha leira plantados de eucalipto, ou invadidos por el, sen que ardesen, "
+        "figuran como eucalipto xa en 2017, e a conversión non aparece. Para estas clases a "
+        "diferenza entre mapas non sobreestima o cambio: é incompleta, nunha dirección "
+        "descoñecida. Falta a conversión sen perturbación, e a confusión do clasificador en "
+        "terreo cortado ou queimado pode sumar conversións falsas. As propensións de orixe do "
+        "motor de proxeccións (sección 5) axústanse sobre estas mesmas fraccións."
+    )
+    b = conv.get("undisturbed_gain_bound")
+    if not b:
+        return caveat + (
+            "\n\nA cota da conversión sen perturbación a partir do mapa de 2017 independente "
+            "non está dispoñible nesta execución."
+        )
+    src = b["hidden_by_source_ha"]
+    return caveat + (
+        "\n\nCota da conversión que o mapa retrodatado non ve. Nos píxeles retrodatados que "
+        "o mapa de 2017 clasificado de forma independente dá como algo distinto de eucalipto, "
+        f"e o de 2024 como eucalipto fiable, hai {num(b['hidden_ha'])} ha "
+        f"({num(src['shrub'])} ha de mato, {num(src['agriculture'])} ha de agricultura, "
+        f"{num(src['pine'])} ha de piñeiro, {num(src['native_broadleaf'])} ha de frondosas "
+        f"autóctonas e {num(src['other'])} ha doutros usos). É unha envolvente, non unha "
+        "estimación: suma a conversión real sen perturbación e os erros do clasificador de "
+        "2017, que son moitos. Para comparar, o mapa retrodatado rexistra "
+        f"{num(b['recorded_ha'])} ha de ganancia bruta entre píxeles fiables, "
+        f"{num(b['recorded_rate'] * 100, 3)} % ao ano da superficie sen eucalipto en conxunto; "
+        f"coa envolvente enteira sería como moito o {num(b['envelope_rate'] * 100, 3)} % ao "
+        "ano."
+    )
+
+
 def _sensitivity_txt(fire: dict) -> str:
     ms = fire.get("map_sensitivity")
     if ms is None or ms.empty:
@@ -895,8 +933,12 @@ def _resumo(res: dict) -> str:
         ", distinguible de cero" if _sig(fc) else ", non distinguible de cero"
     )
     items.append(
-        f"- **Do lume á plantación.** Efecto da fracción queimada en 2018–2021 sobre a "
-        f"conversión bruta a eucalipto en 2024: {fc_txt}."
+        f"- **Do lume á plantación.** Conversión a eucalipto rexistrada en terreo queimado: "
+        f"efecto da fracción queimada en 2018–2021 sobre a conversión bruta a eucalipto en "
+        f"2024, {fc_txt}. Non é a diferenza entre a probabilidade de conversión con lume e sen "
+        "el: en terreo aberto o mapa retrodatado só ve a conversión que segue a un incendio, e "
+        "os píxeles sen perturbación contan como ceros, así que a estimación tende a ser alta. "
+        "Aínda así, unha estimación próxima a cero non indica que o lume favoreza a plantación."
     )
     t, r = contr.loc["Targeted restoration"], contr.loc["Random restoration"]
     items.append(
@@ -1129,6 +1171,8 @@ todos os píxeles, {num(nat["all_pixels"], 3)} ha; píxeles fiables, {num(nat["c
 e píxeles fiables con perda arbórea ou incendio que o corroboren,
 {num(nat["confident_with_loss_or_fire"], 3)} ha. A última é a máis prudente.
 
+{_undisturbed_txt(conv)}
+
 Atribución da perda de cuberta arbórea 2018–2024 (Hansen) a 40 m:
 
 {_md_table(conv["loss_attribution"], values=("driver",))}
@@ -1175,7 +1219,10 @@ causais estimados de cada cuberta; o lume converte parte das frondosas e dos pi�
 e a plantación de eucalipto segue a taxa de conversión bruta observada en 2017–2024 entre
 píxeles fiables ({num(proj["components"].diagnostics["conv_rate_target"] * 100, 2)} % ao ano da
 superficie sen eucalipto), reforzada polos incendios recentes. O motor non inclúe perdas de
-eucalipto agás a restauración, así que o crecemento no escenario tendencial é un límite superior. O modelo validouse na paisaxe sintética (1 km), onde sobreestimou uns 40 % os beneficios
+eucalipto agás a restauración, pero iso non fai do escenario tendencial un límite superior: a
+taxa calibrada deixa fóra a plantación en mato e terras agrícolas sen incendio, que os mapas
+retrodatados non ven (sección 3), e pode quedar baixa. Por iso a sensibilidade á taxa vai nas
+dúas direccións. O modelo validouse na paisaxe sintética (1 km), onde sobreestimou uns 40 % os beneficios
 da restauración e moito máis os do límite, porque sobreestima a plantación de referencia. As bandas son os percentís 5 e 95 de 40 simulacións que combinan a
 variabilidade meteorolóxica e a incerteza dos efectos.
 
@@ -1187,6 +1234,11 @@ Sensibilidade: se a plantación futura fose a metade da observada en 2017–2024
 porque se manteñen as restricións a novas plantacións):
 
 {_md_table(proj["contrasts_half_conversion"], 4, values=("scenario",))}
+
+Sensibilidade: se a plantación futura fose o dobre da observada (por exemplo, porque a taxa
+observada deixa fóra a plantación sen incendio en terreo aberto):
+
+{_md_table(proj["contrasts_double_conversion"], 4, values=("scenario",))}
 
 ## 6. Auga
 
@@ -1203,6 +1255,12 @@ porque se manteñen as restricións a novas plantacións):
   é grande, e ese erro atenúa os efectos cara a cero. Non se aplicou SIMEX porque as parcelas
   (presenza de eucalipto nun círculo de 25 m, sen data) non miden o mesmo ca o píxel, así que
   non dan a varianza do erro.
+- **Cambio en terreo aberto.** Os mapas retrodatados só rexistran un cambio onde houbo perda
+  arbórea (Hansen) ou incendio (EFFIS). A plantación de eucalipto en mato ou en terras
+  agrícolas sen lume, e a súa expansión a leiras abandonadas, non deixan ningunha das dúas
+  pegadas, así que non se ven. Isto afecta ás transicións mato → eucalipto e agricultura →
+  eucalipto, á taxa de plantación das proxeccións e á relación entre lume e plantación. A
+  sección 3 dá unha cota a partir do mapa de 2017 independente.
 - **Incendios.** EFFIS rexistra sobre todo os incendios grandes; os pequenos quedan fóra. Só hai
   seis anos (2018–2023) e 2022 domina o total.
 - **Causalidade.** Os efectos son causais só se non queda confusión relevante sen medir (por
