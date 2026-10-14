@@ -105,6 +105,15 @@ has the ingestion adapters. The adapters are written but **have not been run fro
 - **Effect (causal):** partially linear DML, *Y = θ·D + g(X) + ε*, with cross-fitting on spatial
   folds and standard errors clustered by 20 km block. Confounders *X* are climate, weather, terrain,
   human pressure and the other cover fractions. Outcomes are occurrence and dNBR severity.
+- **Exposure:** cover fractions from a map in which nothing recorded about a pixel after 2017
+  decides that pixel's class. On real data that is the 2017 imagery classified by one model on
+  every pixel. The map is not built only from pre-2018 information: the classifier is trained on
+  2024 imagery, with MFE50 labels kept only on pixels with no Hansen loss since 2001 and no EFFIS
+  burn in 2018-2023, and the 2017 imagery is quantile-normalised to 2024 on pixels with no loss
+  in 2017-2024 and no burn in 2018-2023. Those fits apply to every pixel alike. Fitting them
+  without the later records too has not been tried; it needs a real-data re-run. A map that uses
+  later records pixel by pixel, such as one backdated from 2024 wherever nothing burned or was
+  cleared, lets the outcome pick each pixel's class; it is a sensitivity check only.
 - Robustness: propensity-matched comparison, placebo outcome (fire in the year *before* the
   plantation was established), sensitivity to block size.
 
@@ -166,6 +175,11 @@ has the ingestion adapters. The adapters are written but **have not been run fro
   covariate, and SEs are clustered at block scale.
 - *Measurement error in treatment:* species maps are imperfect. Propagate classifier uncertainty
   (re-estimate with posterior class probabilities).
+- *Outcome-dependent exposure:* map error that depends on the outcome is differential, and its
+  bias can go either way. The backdated 2017 map keeps the 2024 class only on pixels that did
+  not burn or lose tree cover after 2017, so it is not the fire exposure; the fire estimates use
+  the independently classified 2017 map, and the backdated and 2024 maps are post-outcome
+  sensitivity checks.
 - *Reverse causality:* fire → plantation is modelled explicitly with lagged cover (cover at t−1
   → fire at t).
 - *Scale:* 1 km cells mix land uses. Fractions rather than dominant class are used for all effects.
@@ -178,6 +192,6 @@ has the ingestion adapters. The adapters are written but **have not been run fro
 | M1 | Synthetic simulator with known effects, full pipeline end to end, tests | done |
 | M1b | Robustness: group effects, OVB sensitivity, SIMEX, cluster-size SEs; adapter tests on fixtures | done |
 | M2 | Real-data ingestion → 1 km panel | done from object storage (Sentinel-2, WorldCover, Copernicus DEM, Hansen GFC, EFFIS severity, Overture/OSM, GHCN); MFE/IFN labels and river gauges unreachable |
-| M3 | Species maps 2017 and 2024, areas, 2017→2024 conversion | done: cleaned OSM labels plus harvest-history pseudo-labels, held-out-north eucalyptus F1 0.77; 2017 normalised and backdated from 2024 (≈483k ha 2017, 442k ha 2024); trained also on MFE50 labels; checked against the MFE50 (eucalyptus F1 0.55, accuracy 0.61) and ~6,900 IFN3 plots (area right in aggregate, plot-level F1 0.46); Landsat Collection 2 back-cast 1990-2017 built (F1 0.67-0.77) but fails the change test |
-| M4 | Causal estimates on real data with robustness | done for fire (eucalyptus burns less than agriculture/other, −0.26 pp per 10 points, significant under all three map versions; no severity effect); water: CAMELS-ES gauges (33 catchments, 1992-2020) give an uninformative estimate because cover barely changes in the gauge years; power study on 79 DEM catchments (MDE ~120 mm/yr per 10 points) |
+| M3 | Species maps 2017 and 2024, areas, 2017→2024 conversion | done: cleaned OSM labels plus harvest-history pseudo-labels, held-out-north eucalyptus F1 0.77; 2017 normalised, classified independently (the fire exposure) and backdated from 2024 for the change accounting (≈483k ha 2017 backdated, 442k ha 2024); trained also on MFE50 labels; checked against the MFE50 (eucalyptus F1 0.55, accuracy 0.61) and ~6,900 IFN3 plots (area right in aggregate, plot-level F1 0.46); Landsat Collection 2 back-cast 1990-2017 built (F1 0.67-0.77) but fails the change test |
+| M4 | Causal estimates on real data with robustness | done for fire (eucalyptus burns less than agriculture/other: −0.16 pp per 10 points with the independent 2017 map as exposure, 95% CI −0.32 to −0.00002; the backdated 2017 map, −0.26, and the 2024 map, −0.46, use post-outcome information and are sensitivity checks only; the rest of the fire results, incl. no severity effect, still come from the backdated-map run and need a re-run); water: CAMELS-ES gauges (33 catchments, 1992-2020) give an uninformative estimate because cover barely changes in the gauge years; power study on 79 DEM catchments (MDE ~120 mm/yr per 10 points) |
 | M5 | Year-by-year projections, restoration priority map, policy brief | done: dynamic engine, brief in Galician (`docs/galicia_real/informe.md`) |

@@ -12,8 +12,9 @@ to **native forest**, **wildfire** and **water**, and what alternative forest pl
 > OpenStreetMap labels, harvest-history pseudo-labels and the Mapa Forestal de España (MFE50,
 > about 1998), and are checked against the MFE50 and the IFN3 inventory plots. The eucalyptus
 > area is plausible, but pixel- and plot-level agreement is modest (F1 about 0.5), and map error
-> attenuates every estimate that uses the map. Numbers from the synthetic runs are properties of
-> the methods, not facts about Galicia.
+> biases every estimate that uses the map in a direction nobody has measured: do not read the
+> fire estimates as conservative. Numbers from the synthetic runs are properties of the methods,
+> not facts about Galicia.
 
 Self-contained: one `pyproject.toml`, one test suite, one virtual environment. The synthetic
 end-to-end run is pure numpy and scikit-learn; the real-data ingestion lives behind the
@@ -149,9 +150,13 @@ What the real-data run established, and what it did not:
   Mapa Forestal de España (MFE50, about 1998) on pixels with no recorded loss or fire since 2001.
   Trained without the northern 100 km square and tested on its OSM labels, eucalyptus F1 is
   0.77 (0.72 without the MFE labels, about 0 before cleaning and pseudo-labels). The 2017 image
-  is quantile-normalised to 2024 on stable pixels and its classes are backdated from 2024
-  wherever no harvest or fire happened in between (an independent 2017 classifier, F1 0.68, is
-  kept as a sensitivity check). Mapped eucalyptus: about 442k ha in 2024 and 483k ha in 2017.
+  is quantile-normalised to 2024 on stable pixels and classified with the same model on every
+  pixel (north-transfer eucalyptus F1 0.68); this independent 2017 map is the fire exposure.
+  For the 2017→2024 change the 2017 classes are also backdated from 2024 wherever no harvest
+  or fire happened in between. That backdated map picks each pixel's classifier by whether it
+  burned or was cleared after 2017, so the fire analysis uses it only as a post-outcome
+  sensitivity check. Mapped eucalyptus: about 442k ha in 2024 and 483k ha in the backdated
+  2017 map.
 - **Independent map checks.** Two official references, both from around 1998:
   - *MFE50* (MITECO, 1:50,000, IFN3 base; wall to wall, rasterised by forest formation, mixed
     formations excluded): the 2024 map scores overall accuracy 0.61, eucalyptus precision 0.47,
@@ -174,12 +179,17 @@ What the real-data run established, and what it did not:
   still **fails the change test**: the area does not grow (571, 570, 552, 543 kha, against the
   known expansion), and pixels turning eucalyptus in 2000-2010 had a Hansen clear-cut only 1.75
   times as often as unchanged pixels (the gate requires 2). It is gated out of the water study.
-- **Fire (EFFIS 2018–2023, 29,565 cells × 6 years).** Relative to agriculture and other cover,
-  10 more points of eucalyptus lower annual burn probability by 0.26 pp (95% CI −0.46 to
-  −0.07; robustness value 0.017, so a weak confounder could explain it). Against native
-  broadleaf, eucalyptus raises it by 0.23 pp, but the interval includes zero (−0.12 to 0.57).
-  All three map versions now agree and are significant (2017 backdated −0.26, 2017 independent
-  −0.16, 2024 −0.46). No severity effect is detectable.
+- **Fire (EFFIS 2018–2023, 29,565 cells × 6 years).** The exposure is the independent 2017
+  map, where nothing that happened to a pixel after 2017 decides its class. Relative to
+  agriculture and other cover, 10 more points of eucalyptus lower annual burn probability by
+  0.16 pp (95% CI −0.32 to −0.00002, so the interval only just excludes zero). The backdated
+  2017 map (−0.26) and the 2024 map (−0.46) are post-outcome sensitivity checks, not
+  corroboration: the backdated map picks each pixel's classifier by whether it burned after
+  2017, and the 2024 map is drawn after the fires. The other fire figures in the brief still
+  come from the run that used the backdated map as exposure and have not been re-run:
+  robustness value 0.017 (a weak confounder could explain the effect), +0.23 pp against native
+  broadleaf with an interval that includes zero (−0.12 to 0.57), and no detectable severity
+  effect.
 - **Ground check of the fire result.** IFN3 plots record where eucalyptus was around 1998,
   with no map error. Plot-level burn rates 2018-2023 (EFFIS): 0.14%/yr on eucalyptus plots vs
   0.38% elsewhere; with the same controls the difference is -0.05 pp (95% CI -0.16 to 0.05),
@@ -197,7 +207,9 @@ What the real-data run established, and what it did not:
   restoration benefits by about 40%) projects the scenarios to 2040 with paired uncertainty
   bands. Restoring 25% of eucalyptus in priority cells changes mean burnt area by about −960
   ha/yr (5–95% band −1,740 to +280; random placement about −330): the bands now include zero.
-  Baseline burn probabilities are cross-fitted by spatial block and isotonic-calibrated.
+  Baseline burn probabilities are cross-fitted by spatial block and isotonic-calibrated. These
+  figures use the fire effects estimated with the backdated map and have not been re-run with
+  the independent 2017 exposure.
 - **Water.** CAMELS-ES (Zenodo 15040948, CC BY 4.0) gives daily flows, EMO-1 precipitation and
   reference ET for 33 catchments mostly inside Galicia, 1992–2020. With two-way fixed effects
   the estimate is uninformative: −1,009 mm/yr per 10 points of eucalyptus (95% CI −2,236 to

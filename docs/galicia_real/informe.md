@@ -1,5 +1,15 @@
 # Eucalipto en Galicia: informe con datos reais
 
+> **Nota sobre esta versión.** As cifras de incendios deste informe, e as proxeccións que
+> dependen delas, calculáronse co mapa de 2017 retrodatado como exposición. Ese mapa mantén a
+> clase de 2024 só nos píxeles que non arderon nin perderon arboredo despois de 2017, así que o
+> propio resultado decide que clasificador etiqueta cada píxel. O código usa agora como
+> exposición o mapa de 2017 clasificado de forma independente. A súa estimación xa está na
+> táboa de sensibilidade ao mapa da sección 4: -0,16 puntos porcentuais por cada 10 puntos de
+> eucalipto (IC 95 %: -0,32 a -0,00002). As versións retrodatada e de 2024 son só
+> comprobacións de sensibilidade. O resto das cifras de incendios está pendente de recalcular
+> con `euc real run`.
+
 > **Que é este informe.** Unha estimación con datos de satélite e rexistros públicos do
 > efecto das plantacións de eucalipto sobre o bosque autóctono e os incendios en Galicia.
 > Os mapas de especies adestráronse con etiquetas de OpenStreetMap depuradas, pseudoetiquetas
@@ -28,7 +38,7 @@
 
 - **Superficie de eucalipto (mapa).** 442 mil ha en 2024 e 483 mil ha en 2017 (reconto de píxeles; 450 mil ha en 2024 sumando probabilidades). Compáranse co Mapa Forestal de España (MFE50, arredor de 1998) e co IFN3 na sección 2; non hai unha referencia oficial recente (o MFE25 de 2011 non se puido descargar). Contra 6 903 parcelas do IFN3 (arredor de 1998, publicadas en GBIF), o mapa dá eucalipto no 30,4 % das parcelas arboradas e as parcelas teñen eucalipto no 27,5 %: o total cadra. Parcela a parcela o acordo é baixo (F1 0,45 fóra do norte), en parte porque as parcelas son anteriores a moitas plantacións.
 - **Substitución de bosque autóctono.** Entre 2017 e 2024, 99,68 ha pasaron de frondosas autóctonas a eucalipto en píxeles clasificados con fiabilidade nos dous anos; 89,12 ha diso coinciden ademais cunha perda de cuberta arbórea (Hansen) ou cun incendio (EFFIS). Esta última é a cifra máis prudente; a diferenza entre mapas tende a sobreestimar o cambio.
-- **Incendios, 2018–2023.** Mantendo constantes o relevo, a localización, a presión humana, a meteoroloxía e as demais cubertas, un aumento de 10 puntos na fracción de eucalipto cambia a probabilidade anual de queima en -0,26 puntos porcentuais (IC 95 %: -0,46 a -0,07). O mato non mostra un efecto distinguible de cero. O valor de robustez é 0,017: un factor de confusión non medido con ese R² parcial co tratamento e co resultado anularía a estimación. No cadro do norte, onde están as etiquetas de OpenStreetMap, o efecto é -0,14 puntos porcentuais por cada 10 puntos de eucalipto (IC 95 %: -0,38 a 0,11; 24 anos-cela queimados), non distinguible de cero. As tres versións do mapa dan a mesma conclusión (2017 retrodatado: -0,26, 2017 independente: -0,16, 2024 (posterior aos lumes): -0,46).
+- **Incendios, 2018–2023.** Mantendo constantes o relevo, a localización, a presión humana, a meteoroloxía e as demais cubertas, un aumento de 10 puntos na fracción de eucalipto cambia a probabilidade anual de queima en -0,26 puntos porcentuais (IC 95 %: -0,46 a -0,07). O mato non mostra un efecto distinguible de cero. O valor de robustez é 0,017: un factor de confusión non medido con ese R² parcial co tratamento e co resultado anularía a estimación. No cadro do norte, onde están as etiquetas de OpenStreetMap, o efecto é -0,14 puntos porcentuais por cada 10 puntos de eucalipto (IC 95 %: -0,38 a 0,11; 24 anos-cela queimados), non distinguible de cero. Versións do mapa: 2017 retrodatado -0,26, 2017 independente -0,16, 2024 (posterior aos lumes) -0,46. A retrodatada e a de 2024 usan rexistros posteriores aos lumes, así que non corroboran a estimación (véxase a nota do principio).
 - **Eucalipto fronte a frondosas autóctonas.** O efecto anterior compárase coa agricultura e outros usos, que son os que máis arden. Fronte ás frondosas autóctonas, que son as que menos arden, 10 puntos de eucalipto no canto de frondosas cambian a probabilidade anual de queima en 0,23 puntos porcentuais (IC 95 % aproximado: -0,12 a 0,57; aproximado porque combina dúas estimacións separadas). Este é o contraste que importa para a restauración.
 - **Severidade.** Entre as celas queimadas, o efecto do eucalipto sobre a clase de severidade EFFIS é -0,21 por unidade de fracción (EE 0,33; non distinguible de cero; n = 2 146).
 - **Do lume á plantación.** Efecto da fracción queimada en 2018–2021 sobre a conversión bruta a eucalipto en 2024: 0,00056 (EE 0,0026), non distinguible de cero.
@@ -84,6 +94,11 @@ contra as de 2024 e clasifícanse co mesmo modelo, pero nos píxeles sen perturb
 anos (sen perda arbórea de Hansen nin queimado de EFFIS) mantense a clase de 2024. Así, o
 ruído do clasificador non crea cambios falsos, e un cambio real precisa de evidencia. Retrodatouse o
 90 % dos píxeles.
+
+O mapa retrodatado é o punto de partida do cambio 2017–2024 (sección 3), pero non serve como
+exposición nos incendios: nel, que un píxel ardese ou perdese arboredo despois de 2017 decide
+que clasificador lle dá a clase, así que o resultado entra na exposición (véxase a nota do
+principio).
 
 Superficies. A columna «superficie estimada» corrixe o mapa invertindo a matriz de confusión
 da validación cruzada. Esa corrección só é fiable se as etiquetas son puras e representativas;
@@ -208,8 +223,8 @@ Que se conclúe:
 - **Adestrar coas parcelas non mellora o mapa.** Nun experimento, as parcelas da metade dos bloques de 10 km (1 341 sen perturbación desde 2001) engadíronse ao adestramento e avaliouse nas 3 133 da outra metade: F1 0,44 co mapa actual e 0,42–0,44 coas parcelas; adestrando só coas parcelas, 0,26. Unha parcela con algún eucalipto non é unha boa etiqueta para un píxel de 40 m, así que este acordo é en parte un teito da referencia, non só do mapa.
 
 Consecuencia: as cifras de superficie son plausibles, pero a localización do eucalipto píxel a
-píxel é incerta. Os efectos estimados sobre os incendios están atenuados por este erro
-(sección 7).
+píxel é incerta. Este erro introduce un nesgo nos efectos estimados sobre os incendios, de
+dirección descoñecida: non se pode supor que os achegue a cero (sección 7).
 
 ### Mapa histórico con Landsat, 1990–2017
 
@@ -336,7 +351,10 @@ Onde é maior o efecto do eucalipto:
 ![grupos](grupos.png)
 
 Sensibilidade ao mapa de eucalipto (efecto sobre a probabilidade anual de queima por unidade
-de fracción):
+de fracción). As versións retrodatada e de 2024 usan rexistros posteriores aos lumes: o mapa
+retrodatado escolle o clasificador de cada píxel segundo ardese ou non despois de 2017, e o de
+2024 é posterior aos lumes. Son comprobacións de sensibilidade, non corroboración; a
+estimación principal é a do mapa independente (véxase a nota do principio).
 
 | mapa | estimación | EE | IC 95 % inferior | IC 95 % superior |
 |---|---|---|---|---|
@@ -508,7 +526,9 @@ Conclusión: **cos mapas dispoñibles (2017 e 2024), nin sequera cos aforos se p
   clasificadas. A comprobación con GBIF (sección 2) é independente pero oportunista; a
   validación definitiva debe facerse co Mapa Forestal de España ou co IFN4.
 - **Erro do mapa.** As parcelas de inventario mostran que o erro de localización do eucalipto
-  é grande, e ese erro atenúa os efectos cara a cero. Non se aplicou SIMEX porque as parcelas
+  é grande. Ese erro introduce nos efectos un nesgo de dirección descoñecida, e non se pode
+  supor que os achegue a cero: nos mapas retrodatado e de 2024 o erro depende do propio
+  resultado (seccións 2 e 4). Non se aplicou SIMEX porque as parcelas
   (presenza de eucalipto nun círculo de 25 m, sen data) non miden o mesmo ca o píxel, así que
   non dan a varianza do erro.
 - **Incendios.** EFFIS rexistra sobre todo os incendios grandes; os pequenos quedan fóra. Só hai

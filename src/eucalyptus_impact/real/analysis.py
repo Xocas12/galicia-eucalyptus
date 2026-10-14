@@ -2,9 +2,18 @@
 
 Design:
 - Unit: 1 km cell inside Galicia (at least half its area in the four provinces).
-- Exposure: cover fractions in the 2017 baseline map (Nov 2016 - Sep 2017 imagery; the L2A
-  archive starts in Nov 2016), fixed and
-  measured before every outcome year, so fire cannot feed back into the treatment.
+- Exposure: cover fractions in a 2017 map (Nov 2016 - Sep 2017 imagery; the L2A archive starts
+  in Nov 2016), fixed across the outcome years. The main version (`FIRE_MAPS`) is the 2017
+  imagery classified by the 2024 model on every pixel: no 2018-2023 EFFIS burn and no
+  2017-2024 Hansen loss of a pixel decides that pixel's class. (The model's MFE50 labels and
+  the 2017 radiometric normalisation are fitted on pixels with no recorded loss or burn, so
+  those records do shape the fits, but both fits apply to every pixel alike.) The backdated
+  2017 map does not have that property. It keeps the 2024 class only on pixels with no Hansen
+  loss in 2017-2024 and no EFFIS burn in 2018-2023, so whether a pixel later burned decides
+  which classifier labels it, and the outcome leaks into the exposure. That map and the 2024
+  one (drawn after the fires) are post-outcome sensitivity checks (`map_sensitivity`), not
+  corroboration. The backdated map is still the start of the 2017 -> 2024 change window
+  (conversion, projections).
 - Fire outcomes: EFFIS burned share and severity class, 2018-2023 (cell-years).
 - Confounders: terrain, distance to the sea, location (x, y), buildings, distance to settlements,
   tree cover in 2000, forest loss 2001-2016, the other cover fractions, fire weather (station
@@ -46,6 +55,15 @@ from .species import CLASS_NAMES, PIXEL_HA, area_table, species_maps, transition
 from .water import water_analysis
 
 FIRE_YEARS = list(range(2018, 2024))
+# Map versions of the cover fractions, by the column suffix `cell_frame` gives them. The first
+# is the fire exposure; the other two use records from after the 2017 imagery that include the
+# fire outcomes themselves, so they are only sensitivity checks.
+MAIN_FIRE_MAP = "2017 independent"
+FIRE_MAPS = {
+    MAIN_FIRE_MAP: "_ind",  # 2017 imagery, classified the same way on every pixel
+    "2017 backdated (post-outcome)": "",  # classifier chosen by 2018-2023 burns, 2017-2024 loss
+    "2024 (post-fire)": "_end",
+}
 STATIC = [
     "elev",
     "slope",
@@ -60,7 +78,18 @@ STATIC = [
 
 
 def cell_frame(L: dict, maps: dict) -> pd.DataFrame:
-    """Static cell table for Galicia (1 km)."""
+    """Static cell table for Galicia (1 km).
+
+    Cover columns: `COVER` from the backdated 2017 map, `COVER + "_ind"` from the independently
+    classified 2017 map and `COVER + "_end"` from the 2024 map (`FIRE_MAPS`).
+    """
+    from .species import class_fractions
+
+    if "class40_2017_independent" not in maps:
+        raise KeyError(
+            "species maps lack class40_2017_independent, the fire exposure; rebuild them with "
+            "species_maps(refresh=True)"
+        )
     aoi = L["aoi"]["frac1km"]
     frac17, frac24 = maps["frac_2017"], maps["frac_2024"]
     keep = (aoi >= 0.5) & np.isfinite(frac17[0]) & np.isfinite(frac24[0])
@@ -83,15 +112,11 @@ def cell_frame(L: dict, maps: dict) -> pd.DataFrame:
             "block": block_ids(GRID_1KM, 20)[keep],
         }
     )
+    ind = class_fractions(maps["class40_2017_independent"], L["aoi"]["mask40"].astype(bool))
     for j, c in enumerate(COVER):
         df[c] = frac17[j][keep]
         df[c + "_end"] = frac24[j][keep]
-    if "class40_2017_independent" in maps:
-        from .species import class_fractions
-
-        ind = class_fractions(maps["class40_2017_independent"], L["aoi"]["mask40"].astype(bool))
-        for j, c in enumerate(COVER):
-            df[c + "_ind"] = ind[j][keep]
+        df[c + "_ind"] = ind[j][keep]
     df["neigh_euc"] = focal_mean(np.nan_to_num(frac17[EUC]), 3, mask=keep)[keep]
     # Gross conversion 2017 -> 2024: share of confidently mapped non-eucalyptus 40 m pixels that
     # are confidently eucalyptus in 2024. Net change would count burned eucalyptus canopy
@@ -117,9 +142,16 @@ def cell_frame(L: dict, maps: dict) -> pd.DataFrame:
     return df.reset_index(drop=True)
 
 
-def cell_year_panel(cells: pd.DataFrame) -> pd.DataFrame:
+def cell_year_panel(cells: pd.DataFrame, exposure: str = FIRE_MAPS[MAIN_FIRE_MAP]) -> pd.DataFrame:
+    """Cell-years 2018-2023, with the cover fractions (`COVER`) of one map version.
+
+    `exposure` is the column suffix of that version (`FIRE_MAPS`). The default is the fire
+    exposure, the independently classified 2017 map; "" gives the backdated 2017 map.
+    """
     parts = []
-    base = cells[["row", "col", "block", *STATIC, *COVER]]
+    base = cells[["row", "col", "block", *STATIC]].copy()
+    for c in COVER:
+        base[c] = cells[c + exposure]
     for yr in FIRE_YEARS:
         p = base.copy()
         p["year"] = yr
@@ -423,21 +455,16 @@ def projections(
 
 
 def map_sensitivity(cells: pd.DataFrame, seed: int = 0) -> pd.DataFrame:
-    """Fire-occurrence effect of eucalyptus under different exposure maps.
+    """Fire-occurrence effect of eucalyptus under each map version in `FIRE_MAPS`.
 
-    The estimate moved between map versions during development, so it is reported for the
-    backdated 2017 map (the main exposure), the independently classified 2017 map, and the 2024
-    map (measured after the fires, so only a sensitivity check).
+    The first row is the main estimate (the independently classified 2017 map). The backdated
+    2017 map and the 2024 map use post-2017 records that include the fire outcomes (the
+    backdated map picks each pixel's classifier by whether it burned; the 2024 map is drawn
+    after the fires), so their rows are sensitivity checks, not corroboration.
     """
-    versions = {"2017 backdated": "", "2017 independent": "_ind", "2024 (post-fire)": "_end"}
     rows = []
-    for name, suf in versions.items():
-        if suf and COVER[0] + suf not in cells:
-            continue
-        c2 = cells.copy()
-        for c in COVER:
-            c2[c] = cells[c + suf] if suf else cells[c]
-        est = fire_analysis(cell_year_panel(c2), seed=seed)["occurrence_dml"]
+    for name, suf in FIRE_MAPS.items():
+        est = fire_analysis(cell_year_panel(cells, suf), seed=seed)["occurrence_dml"]
         rows.append(
             {
                 "map": name,
@@ -492,7 +519,7 @@ def run_real(seed: int = 0) -> dict:
     L = all_layers()
     maps = species_maps()
     cells = cell_frame(L, maps)
-    panel = cell_year_panel(cells)
+    panel = cell_year_panel(cells)  # cover from the fire exposure, FIRE_MAPS[MAIN_FIRE_MAP]
     log.info("real panel: %d cells, %d cell-years", len(cells), len(panel))
     res = {"cells": cells, "maps": maps, "layers": L}
     res["areas"] = {p: area_table(maps, p) for p in ("2017", "2024")}
@@ -501,10 +528,14 @@ def run_real(seed: int = 0) -> dict:
         for p in ("2017", "2024")
     }
     res["fire"] = fire_analysis(panel, seed=seed)
+    res["fire"]["exposure_map"] = MAIN_FIRE_MAP
     res["fire"]["map_sensitivity"] = map_sensitivity(cells, seed=seed)
     res["fire"]["plot_check"] = plot_fire_check(cells, L, seed=seed)
     log.info("fire done")
-    res["susceptibility"] = susceptibility(panel, cells, seed=seed)
+    # The susceptibility model keeps the backdated 2017 fractions (the 2024 classes on most
+    # pixels, closest to the 2024 cover it predicts from): it is a prediction model, not an
+    # effect estimate.
+    res["susceptibility"] = susceptibility(cell_year_panel(cells, ""), cells, seed=seed)
     res["conversion"] = conversion_analysis(cells, maps, L, seed=seed)
     log.info("conversion done")
     res["projections"] = projections(cells, res["fire"], res["susceptibility"], seed=seed)
@@ -538,7 +569,7 @@ def run_real(seed: int = 0) -> dict:
     return res
 
 
-__all__ = ["CLASS_NAMES", "cell_frame", "cell_year_panel", "run_real"]
+__all__ = ["CLASS_NAMES", "FIRE_MAPS", "MAIN_FIRE_MAP", "cell_frame", "cell_year_panel", "run_real"]
 
 
 def plot_fire_check(cells: pd.DataFrame, L: dict, n_folds: int = 5, seed: int = 0) -> dict:

@@ -428,6 +428,11 @@ def backdate(L: dict, cls17, pmax17, cls24, strong: int | None = None):
     The confidence override is off by default: at 90% it put 109k ha of eucalyptus on
     undisturbed pixels where 2024 saw none (the weaker 2017 imagery is overconfident), which
     was most of the spurious 2017-2024 difference.
+
+    The result is not outcome-free. Whether a pixel gets the 2024 class or the 2017 one depends
+    on EFFIS burns in 2018-2023, which are the fire outcomes, and on Hansen loss in 2017-2024.
+    It is the start of the 2017 -> 2024 change window, but not the fire exposure
+    (`analysis.FIRE_MAPS`).
     """
     stable = stable_since(L, 2017)
     override = (cls17 != cls24) & (pmax17 >= strong) if strong is not None else False
@@ -448,30 +453,49 @@ def class_fractions(cls: np.ndarray, mask: np.ndarray) -> np.ndarray:
         return np.where(npx > 0, frac / npx, np.nan).astype("float32")
 
 
-@cached_npz("species")
-def species_maps(per_class: int = 30_000, seed: int = 0):
-    """Train on 2024; classify 2024 and the normalised 2017 imagery; backdate 2017 (cached)."""
-    L = all_layers()
+def assemble_maps(L: dict, cls24, pmax24, cls17r, pmax17r) -> tuple[dict, np.ndarray]:
+    """The map versions built from the 2024 and the normalised-2017 predictions.
+
+    - `class40_2017_independent`: the 2017 imagery classified by the 2024 model on every pixel.
+      The same normalisation and model apply to every pixel, so no pixel's class depends on
+      what happened to it after 2017; this is the fire exposure. (Both were fitted on samples
+      that leave out pixels with recorded loss or fire, but they treat every pixel alike.)
+    - `class40_2017`, `pmax40_2017`, `frac_2017`: backdated from 2024 (`backdate`), which picks
+      each pixel's classifier by whether it burned or lost tree cover after 2017. Used for the
+      2017 -> 2024 change; for fire only as a post-outcome sensitivity check.
+    - `class40_2024`, `pmax40_2024`, `frac_2024`: the 2024 map.
+
+    Also returns the mask of pixels that kept their 2024 class.
+    """
     mask = L["aoi"]["mask40"].astype(bool)
-    out = {}
-    model, metrics, (y, cvp) = train_period("2024", per_class, seed)
-    cls24, pmax24, frac24 = predict_period("2024", model, cube=build_period("2024"))
-    cls17r, pmax17r, _ = predict_period("2017", model, cube=normalised_cube("2017"))
     cls17, kept = backdate(L, cls17r, pmax17r, cls24)
     pmax17 = np.where(kept, pmax24, pmax17r).astype("uint8")
-    out.update(
-        {
-            "class40_2024": cls24,
-            "pmax40_2024": pmax24,
-            "frac_2024": frac24,
-            "class40_2017": cls17,
-            "pmax40_2017": pmax17,
-            "frac_2017": class_fractions(cls17, mask),
-            "class40_2017_independent": cls17r,
-        }
-    )
-    # The 2024 soft fractions are used in both years for comparability.
-    out["frac_2024"] = class_fractions(cls24, mask)
+    out = {
+        "class40_2024": cls24,
+        "pmax40_2024": pmax24,
+        # Hard-class fractions in both years, for comparability.
+        "frac_2024": class_fractions(cls24, mask),
+        "class40_2017": cls17,
+        "pmax40_2017": pmax17,
+        "frac_2017": class_fractions(cls17, mask),
+        "class40_2017_independent": cls17r,
+    }
+    return out, kept
+
+
+@cached_npz("species")
+def species_maps(per_class: int = 30_000, seed: int = 0):
+    """Train on 2024; classify 2024 and the normalised 2017 imagery; backdate 2017 (cached).
+
+    Keeps both 2017 versions: the independent one is the fire exposure, the backdated one the
+    start of the 2017 -> 2024 change (`assemble_maps`).
+    """
+    L = all_layers()
+    mask = L["aoi"]["mask40"].astype(bool)
+    model, metrics, (y, cvp) = train_period("2024", per_class, seed)
+    cls24, pmax24, _ = predict_period("2024", model, cube=build_period("2024"))
+    cls17r, pmax17r, _ = predict_period("2017", model, cube=normalised_cube("2017"))
+    out, kept = assemble_maps(L, cls24, pmax24, cls17r, pmax17r)
     for period in ("2017", "2024"):
         out[f"cv_true_{period}"] = y
         out[f"cv_pred_{period}"] = cvp
