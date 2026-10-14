@@ -103,8 +103,12 @@ has the ingestion adapters. The adapters are written but **have not been run fro
 - **Susceptibility (prediction):** cell-year gradient boosting on cover fractions, fire weather,
   terrain and human pressure; spatial-block CV; AUC, Brier score and calibration.
 - **Effect (causal):** partially linear DML, *Y = θ·D + g(X) + ε*, with cross-fitting on spatial
-  folds and standard errors clustered by 20 km block. Confounders *X* are climate, weather, terrain,
-  human pressure and the other cover fractions. Outcomes are occurrence and dNBR severity.
+  folds (20 km blocks, set in advance). Standard errors are clustered on blocks too, at a scale
+  the data choose: the score is re-clustered on 5-80 km blocks, and the reported SE uses the
+  smallest scale from 20 km up at which the SE stops rising, with a t(G−1) critical value. If it
+  never stops rising, the largest block is used and the brief says the interval may still be too
+  narrow. Confounders *X* are climate, weather, terrain, human pressure and the other cover
+  fractions. Outcomes are occurrence and dNBR severity.
 - Robustness: propensity-matched comparison, placebo outcome (fire in the year *before* the
   plantation was established), sensitivity to block size.
 
@@ -179,5 +183,5 @@ has the ingestion adapters. The adapters are written but **have not been run fro
 | M1b | Robustness: group effects, OVB sensitivity, SIMEX, cluster-size SEs; adapter tests on fixtures | done |
 | M2 | Real-data ingestion → 1 km panel | done from object storage (Sentinel-2, WorldCover, Copernicus DEM, Hansen GFC, EFFIS severity, Overture/OSM, GHCN); MFE/IFN labels and river gauges unreachable |
 | M3 | Species maps 2017 and 2024, areas, 2017→2024 conversion | done: cleaned OSM labels plus harvest-history pseudo-labels, held-out-north eucalyptus F1 0.77; 2017 normalised and backdated from 2024 (≈483k ha 2017, 442k ha 2024); trained also on MFE50 labels; checked against the MFE50 (eucalyptus F1 0.55, accuracy 0.61) and ~6,900 IFN3 plots (area right in aggregate, plot-level F1 0.46); Landsat Collection 2 back-cast 1990-2017 built (F1 0.67-0.77) but fails the change test |
-| M4 | Causal estimates on real data with robustness | done for fire (eucalyptus burns less than agriculture/other, −0.26 pp per 10 points, significant under all three map versions; no severity effect); water: CAMELS-ES gauges (33 catchments, 1992-2020) give an uninformative estimate because cover barely changes in the gauge years; power study on 79 DEM catchments (MDE ~120 mm/yr per 10 points) |
+| M4 | Causal estimates on real data with robustness | done for fire (eucalyptus burns less than agriculture/other, −0.26 pp per 10 points, same sign under all three map versions; significant with 20 km clustering, but the SE still rises at 40 and 80 km and the 80 km interval includes zero, so the significance is not robust; no severity effect); water: CAMELS-ES gauges (33 catchments, 1992-2020) give an uninformative estimate because cover barely changes in the gauge years; power study on 79 DEM catchments (MDE ~120 mm/yr per 10 points) |
 | M5 | Year-by-year projections, restoration priority map, policy brief | done: dynamic engine, brief in Galician (`docs/galicia_real/informe.md`) |

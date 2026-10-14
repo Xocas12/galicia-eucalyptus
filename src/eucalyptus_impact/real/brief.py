@@ -219,10 +219,10 @@ def _plot_fire_txt(pc: dict | None) -> str:
     def pp(e):
         return (
             f"{num(e.estimate * 100, 2)} puntos porcentuais (IC 95 %: "
-            f"{num((e.estimate - 1.96 * e.se) * 100, 2)} a {num((e.estimate + 1.96 * e.se) * 100, 2)})"
+            f"{num((e.estimate - e.crit * e.se) * 100, 2)} a {num((e.estimate + e.crit * e.se) * 100, 2)})"
         )
 
-    sig = lambda e: abs(e.estimate) > 1.96 * e.se  # noqa: E731
+    sig = lambda e: abs(e.estimate) > e.crit * e.se  # noqa: E731
     return f"""**Comprobación sobre o terreo, sen mapa.** As parcelas do IFN3 (arredor de 1998) din
 onde había eucalipto antes dos lumes de 2018–2023, sen erro de clasificación. Resultado:
 probabilidade anual de que ardese o píxel da parcela, segundo EFFIS, cos mesmos controis a
@@ -669,7 +669,7 @@ def _fig_effects(rows: list, path: Path):
     for ax, (title, ests) in zip(axes[0], rows, strict=True):
         for i, e in enumerate(ests):
             color = NAIVE if e.method == "OLS" else CAUSAL
-            ax.errorbar(e.estimate, i, xerr=1.96 * e.se, fmt="o", color=color, ms=6, lw=2)
+            ax.errorbar(e.estimate, i, xerr=e.crit * e.se, fmt="o", color=color, ms=6, lw=2)
             ax.annotate(
                 tr(e.method),
                 (e.estimate, i),
@@ -731,7 +731,7 @@ def _fig_projections(trajs: dict, path: Path):
 
 
 def _ci(e) -> str:
-    lo, hi = e.estimate - 1.96 * e.se, e.estimate + 1.96 * e.se
+    lo, hi = e.estimate - e.crit * e.se, e.estimate + e.crit * e.se
     return f"{num(e.estimate, 3)} (IC 95 %: {num(lo, 3)} a {num(hi, 3)})"
 
 
@@ -770,8 +770,8 @@ SOURCES = pd.DataFrame(
 
 
 def _sig(e) -> bool:
-    """Whether the 95% CI of an estimate excludes zero."""
-    return abs(e.estimate) > 1.96 * e.se
+    """Whether the 95% CI of an estimate excludes zero (at its own critical value)."""
+    return abs(e.estimate) > e.crit * e.se
 
 
 def _sensitivity_txt(fire: dict) -> str:
@@ -781,19 +781,69 @@ def _sensitivity_txt(fire: dict) -> str:
     parts = ", ".join(
         f"{GL_MAP.get(r.map, r.map)}: {num(r.estimate * 10, 2)}" for r in ms.itertuples()
     )
+    # The rows' intervals are clustered at the scale chosen from the block-size table.
     sig = [(r.ci_low > 0) or (r.ci_high < 0) for r in ms.itertuples()]
     same_sign = len({np.sign(r.estimate) for r in ms.itertuples()}) == 1
+    scale = _scale_txt(fire.get("cluster_scale"))
     if same_sign and all(sig):
-        return f" As tres versións do mapa dan a mesma conclusión ({parts})."
+        rising = (fire.get("cluster_scale") or {}).get("still_rising")
+        return f" As tres versións do mapa dan a mesma conclusión ({parts}; {scale})." + (
+            " Como o erro estándar segue medrando co tamaño do bloque, mesmo eses intervalos "
+            "poden ser estreitos de máis."
+            if rising
+            else ""
+        )
     if same_sign:
         return (
             f" As versións do mapa coinciden no signo ({parts}), pero non todas son "
-            "distinguibles de cero: o resultado é sensible ao mapa."
+            f"distinguibles de cero ({scale}): o resultado é sensible ao mapa."
         )
     return (
         " **A estimación depende do mapa de eucalipto empregado** (puntos porcentuais por "
         f"cada 10 puntos de eucalipto: {parts}), así que non se debe tomar como un resultado "
         "firme."
+    )
+
+
+def _scale_txt(sc: dict | None) -> str:
+    if not sc:
+        return "intervalos con bloques de 20 km"
+    return (
+        f"intervalos con bloques de {num(sc['block_km'])} km e valor crítico t {num(sc['crit'], 2)}"
+    )
+
+
+def _block_txt(fire: dict) -> str:
+    """What the SE-by-block table implies for the fire intervals."""
+    sc, tab = fire.get("cluster_scale"), fire.get("se_by_block")
+    if not sc or tab is None or tab.empty:
+        return ""
+    se = tab.set_index("block_km")["se"]
+    pre, big = sc["preset_km"], float(tab["block_km"].max())
+    used = (
+        "Os intervalos dos efectos sobre o lume (tamén os das versións do mapa e os da consulta "
+        f"por coordenadas) usan bloques de {num(sc['block_km'])} km ({num(sc['n_blocks'])} "
+        f"bloques) e un valor crítico t con G − 1 graos de liberdade ({num(sc['crit'], 2)})."
+    )
+    if sc.get("still_rising"):
+        return (
+            f"O erro estándar medra con cada tamaño de bloque ata o maior, {num(big)} km "
+            f"({num(se[pre], 4)} a {num(pre)} km, {num(se[big], 4)} a {num(big)} km): a "
+            "correlación espacial das puntuacións chega máis lonxe ca os bloques, así que non "
+            f"hai unha escala na que o erro se estabilice. {used} Mesmo así poden ser estreitos "
+            "de máis: un efecto que só é distinguible de cero cos bloques pequenos non se debe "
+            "dar como significativo."
+        )
+    if sc["block_km"] == pre:
+        return (
+            f"O erro estándar non medra por riba dos {num(pre)} km, a escala fixada de antemán, "
+            f"así que esa escala abonda. {used}"
+        )
+    return (
+        f"O erro estándar medra ata os bloques de {num(sc['block_km'])} km e deixa de medrar "
+        f"despois ({num(se[pre], 4)} a {num(pre)} km, {num(sc['se'], 4)} a "
+        f"{num(sc['block_km'])} km), así que os {num(pre)} km fixados de antemán quedaban "
+        f"curtos. {used}"
     )
 
 
@@ -834,22 +884,22 @@ def _resumo(res: dict) -> str:
         occ_txt = (
             f"un aumento de 10 puntos na fracción de eucalipto cambia a probabilidade anual de "
             f"queima en {num(occ.estimate * 10, 2)} puntos porcentuais "
-            f"(IC 95 %: {num((occ.estimate - 1.96 * occ.se) * 10, 2)} a "
-            f"{num((occ.estimate + 1.96 * occ.se) * 10, 2)})"
+            f"(IC 95 %: {num((occ.estimate - occ.crit * occ.se) * 10, 2)} a "
+            f"{num((occ.estimate + occ.crit * occ.se) * 10, 2)})"
         )
     else:
         occ_txt = (
             "**non se detecta un efecto do eucalipto** sobre a probabilidade anual de queima "
             "distinguible de cero, fronte a agricultura e outros usos: por cada 10 puntos de "
             f"eucalipto, {num(occ.estimate * 10, 2)} puntos porcentuais (IC 95 %: "
-            f"{num((occ.estimate - 1.96 * occ.se) * 10, 2)} a "
-            f"{num((occ.estimate + 1.96 * occ.se) * 10, 2)}), cunha taxa base de "
+            f"{num((occ.estimate - occ.crit * occ.se) * 10, 2)} a "
+            f"{num((occ.estimate + occ.crit * occ.se) * 10, 2)}), cunha taxa base de "
             f"{num(susc['base_rate'] * 100, 2)} % ao ano"
         )
     shrub_txt = (
         f"O mato si aumenta o risco: {num(shrub.estimate * 10, 2)} puntos porcentuais por cada "
-        f"10 puntos de mato (IC 95 %: {num((shrub.estimate - 1.96 * shrub.se) * 10, 2)} a "
-        f"{num((shrub.estimate + 1.96 * shrub.se) * 10, 2)})."
+        f"10 puntos de mato (IC 95 %: {num((shrub.estimate - shrub.crit * shrub.se) * 10, 2)} a "
+        f"{num((shrub.estimate + shrub.crit * shrub.se) * 10, 2)})."
         if _sig(shrub)
         else "O mato non mostra un efecto distinguible de cero."
     )
@@ -863,8 +913,8 @@ def _resumo(res: dict) -> str:
     reg_txt = (
         f" No cadro do norte, onde están as etiquetas de OpenStreetMap, o efecto é {num(reg.estimate * 10, 2)} "
         f"puntos porcentuais por cada 10 puntos de eucalipto (IC 95 %: "
-        f"{num((reg.estimate - 1.96 * reg.se) * 10, 2)} a "
-        f"{num((reg.estimate + 1.96 * reg.se) * 10, 2)}; "
+        f"{num((reg.estimate - reg.crit * reg.se) * 10, 2)} a "
+        f"{num((reg.estimate + reg.crit * reg.se) * 10, 2)}; "
         f"{num(fire['labelled_region_burned_cell_years'])} anos-cela queimados)"
         + (", non distinguible de cero." if not _sig(reg) else ".")
     )
@@ -881,8 +931,8 @@ def _resumo(res: dict) -> str:
         "agricultura e outros usos, que son os que máis arden. Fronte ás frondosas autóctonas, "
         f"que son as que menos arden, 10 puntos de eucalipto no canto de frondosas cambian a "
         f"probabilidade anual de queima en {num(diff * 10, 2)} puntos porcentuais (IC 95 % "
-        f"aproximado: {num((diff - 1.96 * diff_se) * 10, 2)} a "
-        f"{num((diff + 1.96 * diff_se) * 10, 2)}; aproximado porque combina dúas estimacións "
+        f"aproximado: {num((diff - occ.crit * diff_se) * 10, 2)} a "
+        f"{num((diff + occ.crit * diff_se) * 10, 2)}; aproximado porque combina dúas estimacións "
         "separadas). Este é o contraste que importa para a restauración."
     )
     sev_txt = "distinguible de cero" if _sig(sev) else "non distinguible de cero"
@@ -1165,6 +1215,8 @@ Sensibilidade á confusión non observada:
 Erro estándar do efecto sobre a aparición de incendios segundo o tamaño do bloque:
 
 {_md_table(fire["se_by_block"])}
+
+{_block_txt(fire)}
 
 Modelo de susceptibilidade: AUC en validación cruzada espacial {num(susc["auc"], 3)}.
 
