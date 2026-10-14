@@ -119,6 +119,25 @@ def estimate_components(
     )
 
 
+def risk_weights(p_base: np.ndarray) -> np.ndarray:
+    """Per-cell scale of the average cover effects: p(1-p) relative to its mean.
+
+    This is an assumption about the form of the effect, not an estimate. Under a logit-type
+    hazard the effect of cover on burn probability grows with p(1-p), so a cell at twice the
+    typical risk gets about twice the average effect. The DML fits give one average effect per
+    class and do not say how it varies with risk. Some bounding is forced (the eucalyptus vs
+    native contrast is larger than the mean burn probability, so a constant effect would take
+    low-risk cells below zero), but this particular form is what makes restoring high-risk
+    cells worth more than restoring random ones: with a constant effect and no clipping,
+    moving the same eucalyptus area gives the same expected change wherever it is moved.
+    The synthetic check cannot test it, because the simulator's fire process is logistic in
+    cover. `project(..., risk_scaling=False)` gives the constant-effect alternative.
+    """
+    pb = np.clip(np.asarray(p_base, float), 1e-4, 0.5)
+    v = pb * (1 - pb)
+    return v / np.mean(v)
+
+
 def project(
     f0: np.ndarray,
     comp: Components,
@@ -129,20 +148,21 @@ def project(
     n_sims: int = 30,
     seed: int = 0,
     theta_se: np.ndarray | None = None,
+    risk_scaling: bool = True,
 ) -> pd.DataFrame:
     """Simulate `n_sims` weather/fire paths; returns per-year mean and 5-95% bands.
 
     policy: "bau", "cap" (no new eucalyptus) or "restore" (cap, plus eucalyptus in
     `restore_cells` returned to native broadleaf at 3/horizon per year). Parameter uncertainty in
     the fire effects is propagated by drawing theta from N(theta, theta_se^2) in each simulation.
+
+    risk_scaling: apply the average cover effects scaled by `risk_weights(p_base)` (True, the
+    default) or as the same constant effect in every cell (False). See `risk_weights`: the
+    scaling is an assumption, and it sets most of the targeted-vs-random restoration gap.
     """
     rng = np.random.default_rng(seed)
     n = len(f0)
-    # Local scaling of the average causal effects: under a logit-type hazard, the effect of cover
-    # on burn probability grows with p(1-p). Without it, restoring a high-risk cell would count
-    # the same as restoring a low-risk one.
-    pb = np.clip(comp.p_base, 1e-4, 0.5)
-    risk_w = (pb * (1 - pb)) / np.mean(pb * (1 - pb))
+    risk_w = risk_weights(comp.p_base) if risk_scaling else np.ones(n)
     rows = []
     for s in range(n_sims):
         th = comp.theta.copy()
@@ -240,5 +260,6 @@ __all__ = [
     "Components",
     "estimate_components",
     "project",
+    "risk_weights",
     "scenario_contrasts",
 ]

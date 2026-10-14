@@ -38,6 +38,36 @@ def test_eucalyptus_contribution_scales_with_share_and_combines_ses():
     assert np.isclose(b["ci"][1] - b["estimate"], 1.96 * np.hypot(0.01, 0.01) * 0.5)
 
 
+def test_lookup_reports_the_engine_risk_scaled_contrast():
+    # The projection engine scales the average effects by p(1-p) relative to its mean; the
+    # lookup shows the vs-native contrast both ways, and labels the scaled one as assumed.
+    eff = {
+        "cover_effects": {
+            "f_eucalyptus": [-0.02, 0.01],
+            "f_native_broadleaf": [-0.05, 0.01],
+        }
+    }
+    b = LK.eucalyptus_contribution(eff, 0.5, "native_broadleaf")
+    s = LK.eucalyptus_contribution(eff, 0.5, "native_broadleaf", risk_weight=2.5)
+    assert np.isclose(s["estimate"], 2.5 * b["estimate"])
+    assert np.allclose(s["ci"], 2.5 * np.array(b["ci"]))
+    assert s["significant"] == b["significant"]
+    r = _result()
+    r["risk"]["risk_weight"] = 2.5
+    r["risk"]["eucalyptus_contribution_vs_native_engine"] = {
+        "estimate": 0.0575,
+        "ci": [-0.0025, 0.1175],
+        "significant": False,
+    }
+    en = LK.format_lookup(r, "en")
+    assert "as the projection engine applies it in this cell (average effect x 2.50" in en
+    assert "+5.75 pp" in en
+    gl = LK.format_lookup(r, "gl")
+    assert "como o aplica o motor de proxeccións nesta cela (efecto medio x 2,50" in gl
+    # Older cell_scores without the column: the line is left out, nothing breaks.
+    assert "projection engine" not in LK.format_lookup(_result(), "en")
+
+
 def _result():
     cov = dict.fromkeys(LK.CLASSES, 0.0) | {"eucalyptus": 0.6, "shrub": 0.4}
     return {

@@ -198,6 +198,19 @@ What the real-data run established, and what it did not:
   bands. Restoring 25% of eucalyptus in priority cells changes mean burnt area by about −960
   ha/yr (5–95% band −1,740 to +280; random placement about −330): the bands now include zero.
   Baseline burn probabilities are cross-fitted by spatial block and isotonic-calibrated.
+  **Most of the targeted-vs-random gap is an assumption, not a result.** The fire fits give
+  one average effect per cover class. The engine applies it in each cell scaled by p(1−p)
+  relative to its mean (`dynamic.risk_weights`), the form a logistic hazard implies, so a
+  hectare restored in a high-risk cell counts for more. The data do not estimate that form.
+  With a constant effect and no clipping at p = 0, moving the same eucalyptus area gives the
+  same expected change wherever it goes. In a toy check with a skewed risk surface
+  (`tests/test_dynamic_and_real.py`) the targeted/random ratio is 2.7 with the scaling and
+  1.05 without (the 0.05 is clipping at p = 0). The simulator check cannot tell the two apart either, because its fire process
+  is logistic in cover. The restoration-priority score (p_base × eucalyptus share) rests on the
+  same assumption. `euc real run` now also reports targeted and random restoration with a
+  constant effect (`contrasts_constant_effect`, `risk_w = 1`) and the eucalyptus→native
+  contrast by p_base quintile (`restoration_contrast_by_risk`). Neither has been run on the
+  real data yet, so the −960 / −330 figures above are still the risk-scaled ones only.
 - **Water.** CAMELS-ES (Zenodo 15040948, CC BY 4.0) gives daily flows, EMO-1 precipitation and
   reference ET for 33 catchments mostly inside Galicia, 1992–2020. With two-way fixed effects
   the estimate is uninformative: −1,009 mm/yr per 10 points of eucalyptus (95% CI −2,236 to
