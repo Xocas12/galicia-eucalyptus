@@ -198,6 +198,11 @@ What the real-data run established, and what it did not:
   bands. Restoring 25% of eucalyptus in priority cells changes mean burnt area by about −960
   ha/yr (5–95% band −1,740 to +280; random placement about −330): the bands now include zero.
   Baseline burn probabilities are cross-fitted by spatial block and isotonic-calibrated.
+  The planting rate is calibrated on the 2017→2024 gross gain, which misses eucalyptus
+  planted on shrubland or farmland without a fire (the backdated 2017 map cannot see it),
+  so BAU is not an upper bound; the brief runs the rate at half and at double and bounds
+  the missing conversion from the independent 2017 map. The same blind spot makes the
+  fire → plantation estimate the conversion recorded on burnt land.
 - **Water.** CAMELS-ES (Zenodo 15040948, CC BY 4.0) gives daily flows, EMO-1 precipitation and
   reference ET for 33 catchments mostly inside Galicia, 1992–2020. With two-way fixed effects
   the estimate is uninformative: −1,009 mm/yr per 10 points of eucalyptus (95% CI −2,236 to

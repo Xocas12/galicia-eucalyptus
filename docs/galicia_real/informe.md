@@ -31,7 +31,7 @@
 - **Incendios, 2018–2023.** Mantendo constantes o relevo, a localización, a presión humana, a meteoroloxía e as demais cubertas, un aumento de 10 puntos na fracción de eucalipto cambia a probabilidade anual de queima en -0,26 puntos porcentuais (IC 95 %: -0,46 a -0,07). O mato non mostra un efecto distinguible de cero. O valor de robustez é 0,017: un factor de confusión non medido con ese R² parcial co tratamento e co resultado anularía a estimación. No cadro do norte, onde están as etiquetas de OpenStreetMap, o efecto é -0,14 puntos porcentuais por cada 10 puntos de eucalipto (IC 95 %: -0,38 a 0,11; 24 anos-cela queimados), non distinguible de cero. As tres versións do mapa dan a mesma conclusión (2017 retrodatado: -0,26, 2017 independente: -0,16, 2024 (posterior aos lumes): -0,46).
 - **Eucalipto fronte a frondosas autóctonas.** O efecto anterior compárase coa agricultura e outros usos, que son os que máis arden. Fronte ás frondosas autóctonas, que son as que menos arden, 10 puntos de eucalipto no canto de frondosas cambian a probabilidade anual de queima en 0,23 puntos porcentuais (IC 95 % aproximado: -0,12 a 0,57; aproximado porque combina dúas estimacións separadas). Este é o contraste que importa para a restauración.
 - **Severidade.** Entre as celas queimadas, o efecto do eucalipto sobre a clase de severidade EFFIS é -0,21 por unidade de fracción (EE 0,33; non distinguible de cero; n = 2 146).
-- **Do lume á plantación.** Efecto da fracción queimada en 2018–2021 sobre a conversión bruta a eucalipto en 2024: 0,00056 (EE 0,0026), non distinguible de cero.
+- **Do lume á plantación.** Conversión a eucalipto rexistrada en terreo queimado: efecto da fracción queimada en 2018–2021 sobre a conversión bruta a eucalipto en 2024, 0,00056 (EE 0,0026), non distinguible de cero. Non é a diferenza entre a probabilidade de conversión con lume e sen el: en terreo aberto o mapa retrodatado só ve a conversión que segue a un incendio, e os píxeles sen perturbación contan como ceros, así que a estimación tende a ser alta. Aínda así, unha estimación próxima a cero non indica que o lume favoreza a plantación.
 - **Proxeccións a 2040.** Restaurar o 25 % do eucalipto cambia a superficie queimada media en -961 ha/ano se se fai nas celas prioritarias (banda 5–95 %: -1 737 a 278,8) e en -330,7 ha/ano se se fai ao chou (banda -624,1 a 121,4). As dúas bandas inclúen o cero: as proxeccións non permiten afirmar que restaurar reduza os incendios, nin que os aumente.
 - **Auga.** Cos caudais reais de 33 concas galegas (CAMELS-ES, 1992–2020) a estimación non informa: -1 009 mm/ano por 10 puntos de eucalipto, cun IC 95 % de -2 236 a 218. O eucalipto apenas cambia dentro das concas nos anos con caudais, e o mapa histórico con Landsat, que daría ese cambio, non superou a validación (seccións 2 e 6).
 
@@ -285,6 +285,11 @@ todos os píxeles, 1 477 ha; píxeles fiables, 99,7 ha;
 e píxeles fiables con perda arbórea ou incendio que o corroboren,
 89,1 ha. A última é a máis prudente.
 
+Isto vale para autóctonas → eucalipto, porque esa conversión esixe cortar árbores e Hansen adoita rexistralo. **Non vale para mato → eucalipto nin para agricultura → eucalipto.** O mapa de 2017 retrodatado mantén a clase de 2024 en todo píxel sen perda arbórea nin incendio, e Hansen rexistra perda de cuberta arbórea, non plantacións (e ningunha perda onde a cuberta arbórea de 2000 era inferior ao 30 %). Un mato ou unha leira plantados de eucalipto, ou invadidos por el, sen que ardesen, figuran como eucalipto xa en 2017, e a conversión non aparece. Para estas clases a diferenza entre mapas non sobreestima o cambio: é incompleta, nunha dirección descoñecida. Falta a conversión sen perturbación, e a confusión do clasificador en terreo cortado ou queimado pode sumar conversións falsas. As propensións de orixe do motor de proxeccións (sección 5) axústanse sobre estas mesmas fraccións.
+
+> Pendente de recalcular: a cota da conversión sen perturbación a partir do mapa de 2017
+> independente engadiuse ao informe despois desta execución, e aparecerá aquí na próxima.
+
 Atribución da perda de cuberta arbórea 2018–2024 (Hansen) a 40 m:
 
 | causa | atribuída | proporción atribuída |
@@ -388,7 +393,10 @@ causais estimados de cada cuberta; o lume converte parte das frondosas e dos pi�
 e a plantación de eucalipto segue a taxa de conversión bruta observada en 2017–2024 entre
 píxeles fiables (0,092 % ao ano da
 superficie sen eucalipto), reforzada polos incendios recentes. O motor non inclúe perdas de
-eucalipto agás a restauración, así que o crecemento no escenario tendencial é un límite superior. O modelo validouse na paisaxe sintética (1 km), onde sobreestimou uns 40 % os beneficios
+eucalipto agás a restauración, pero iso non fai do escenario tendencial un límite superior: a
+taxa calibrada deixa fóra a plantación en mato e terras agrícolas sen incendio, que os mapas
+retrodatados non ven (sección 3), e pode quedar baixa. Por iso a sensibilidade á taxa vai nas
+dúas direccións. O modelo validouse na paisaxe sintética (1 km), onde sobreestimou uns 40 % os beneficios
 da restauración e moito máis os do límite, porque sobreestima a plantación de referencia. As bandas son os percentís 5 e 95 de 40 simulacións que combinan a
 variabilidade meteorolóxica e a incerteza dos efectos.
 
@@ -406,6 +414,12 @@ porque se manteñen as restricións a novas plantacións):
 | escenario | Δ eucalipto (ha) | Δ frondosas autóctonas (ha) | Δ queimado medio (ha/ano) | percentil 5 | percentil 95 |
 |---|---|---|---|---|---|
 | Límite / moratoria | -8 418 | 138,6 | 9,753 | -10,59 | 24 |
+
+Sensibilidade: se a plantación futura fose o dobre da observada (por exemplo, porque a taxa
+observada deixa fóra a plantación sen incendio en terreo aberto):
+
+> Pendente de recalcular: esta táboa engadiuse ao informe despois desta execución, e
+> aparecerá aquí na próxima.
 
 ## 6. Auga
 
@@ -511,6 +525,12 @@ Conclusión: **cos mapas dispoñibles (2017 e 2024), nin sequera cos aforos se p
   é grande, e ese erro atenúa os efectos cara a cero. Non se aplicou SIMEX porque as parcelas
   (presenza de eucalipto nun círculo de 25 m, sen data) non miden o mesmo ca o píxel, así que
   non dan a varianza do erro.
+- **Cambio en terreo aberto.** Os mapas retrodatados só rexistran un cambio onde houbo perda
+  arbórea (Hansen) ou incendio (EFFIS). A plantación de eucalipto en mato ou en terras
+  agrícolas sen lume, e a súa expansión a leiras abandonadas, non deixan ningunha das dúas
+  pegadas, así que non se ven. Isto afecta ás transicións mato → eucalipto e agricultura →
+  eucalipto, á taxa de plantación das proxeccións e á relación entre lume e plantación. A
+  sección 3 dá unha cota a partir do mapa de 2017 independente.
 - **Incendios.** EFFIS rexistra sobre todo os incendios grandes; os pequenos quedan fóra. Só hai
   seis anos (2018–2023) e 2022 domina o total.
 - **Causalidade.** Os efectos son causais só se non queda confusión relevante sen medir (por
