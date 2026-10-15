@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+from dataclasses import replace
 
 import numpy as np
 import pandas as pd
@@ -26,10 +27,12 @@ from .features.panel import (
     build_catchment_panel,
     build_cell_cross_section,
     build_cell_panel,
+    classified_cover,
+    map_confusion,
 )
 from .features.spectral import harmonic_features
 from .models.conversion import attribute_loss_events, conversion_drivers, transition_matrix
-from .models.fire import CONFOUNDERS, estimate_fire_effects, fit_susceptibility
+from .models.fire import CONFOUNDERS, cover_effects, estimate_fire_effects, fit_susceptibility
 from .models.hydrology import SM_COVARIATES, water_effects
 from .models.landcover import olofsson_area, stratified_reference_sample, train_species_classifier
 from .scenarios import run_scenarios
@@ -104,7 +107,69 @@ def run_landcover(land: Landscape, cfg: StudyConfig) -> dict:
         "change": change,
         "transition_map": transition_matrix(map0, map1) * scale,
         "transition_true": pd.DataFrame(J_area, index=CLASSES, columns=CLASSES),
+        # P(mapped class | true class) of the wall-to-wall map at both dates: the classifier's
+        # actual output on pixels it was not trained on.
+        "map_confusion": map_confusion(np.concatenate([c0, c1]), np.concatenate([map0, map1])),
     }
+
+
+def _classified_land(land: Landscape, confusion: np.ndarray, units: int, seed: int) -> Landscape:
+    rng = np.random.default_rng([seed, 3, int(units)])
+    return replace(land, cover_obs=classified_cover(land.cover, confusion, units, rng))
+
+
+def panel_landscape(land: Landscape, confusion: np.ndarray, cfg: StudyConfig) -> Landscape:
+    """The landscape whose observed cover feeds the causal panels (cfg.landcover.panel_cover)."""
+    kind = cfg.landcover.panel_cover
+    if kind == "noise":
+        return land
+    if kind == "classified":
+        units = cfg.landcover.classified_units_per_cell[0]
+        return _classified_land(land, confusion, units, cfg.seed)
+    raise ValueError(f"landcover.panel_cover must be 'noise' or 'classified', not {kind!r}")
+
+
+def map_error_bias(
+    land: Landscape,
+    confusion: np.ndarray,
+    cfg: StudyConfig,
+    known: dict[str, dict] | None = None,
+) -> pd.DataFrame:
+    """Cover-class fire effects re-fitted with cover from different maps, against true cover.
+
+    `land` must carry the simulator's Gaussian-noise cover in cover_obs. Rows: true cover, that
+    noise cover, and classifier-derived fractions for each entry of
+    cfg.landcover.classified_units_per_cell. The ratio columns divide the eucalyptus effect and
+    the eucalyptus - native broadleaf contrast by their true-cover values: above 1 the map error
+    inflates them, below 1 it attenuates them. `known` maps a source label to cover effects
+    already fitted on that source's panel, so they are not fitted twice.
+    """
+    known = known or {}
+    kw = dict(n_folds=cfg.causal.n_folds, seed=cfg.seed, max_rows=cfg.causal.max_rows)
+    sources = [("true", None, replace(land, cover_obs=land.cover)), ("noise", None, land)]
+    for units in cfg.landcover.classified_units_per_cell:
+        lab = f"classified_{int(units)}"
+        sources.append((lab, int(units), _classified_land(land, confusion, units, cfg.seed)))
+    rows = []
+    for label, units, src in sources:
+        eff = known.get(label) or cover_effects(build_cell_panel(src), **kw)
+        rows.append(
+            {
+                "source": label,
+                "units_per_cell": units,
+                "eucalyptus": eff["f_eucalyptus"].estimate,
+                "pine": eff["f_pine"].estimate,
+                "native_broadleaf": eff["f_native_broadleaf"].estimate,
+                "shrub": eff["f_shrub"].estimate,
+                "euc_minus_native": eff["f_eucalyptus"].estimate
+                - eff["f_native_broadleaf"].estimate,
+            }
+        )
+    out = pd.DataFrame(rows)
+    base = out.iloc[0]
+    out["ratio_eucalyptus"] = out["eucalyptus"] / base["eucalyptus"]
+    out["ratio_contrast"] = out["euc_minus_native"] / base["euc_minus_native"]
+    return out
 
 
 def run(cfg: StudyConfig, land: Landscape | None = None) -> dict:
@@ -118,6 +183,9 @@ def run(cfg: StudyConfig, land: Landscape | None = None) -> dict:
 
     res["landcover"] = run_landcover(land, cfg)
     log.info("landcover done (%.1fs)", time.time() - t0)
+    noise_land = land
+    land = panel_landscape(land, res["landcover"]["map_confusion"], cfg)
+    res["land"] = land
 
     panel = build_cell_panel(land)
     catch = build_catchment_panel(land)
@@ -145,6 +213,19 @@ def run(cfg: StudyConfig, land: Landscape | None = None) -> dict:
     # fractions are partialled out, so it is not used for headline numbers.
     res["fire_effects"] = estimate_fire_effects(panel, **kw)
     log.info("fire done (%.1fs)", time.time() - t0)
+    if cfg.causal.map_error_check:
+        main = (
+            "noise"
+            if cfg.landcover.panel_cover == "noise"
+            else f"classified_{int(cfg.landcover.classified_units_per_cell[0])}"
+        )
+        res["map_error_bias"] = map_error_bias(
+            noise_land,
+            res["landcover"]["map_confusion"],
+            cfg,
+            known={main: res["fire_effects"]["cover_effects"]},
+        )
+        log.info("map-error bias check done (%.1fs)", time.time() - t0)
 
     water = water_effects(catch, xsec, cfg.causal.n_folds, cfg.seed)
     water["soil_moisture_dml"].truth = land.truth.sm_euc

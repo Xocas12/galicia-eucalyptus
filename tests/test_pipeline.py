@@ -35,7 +35,20 @@ def test_end_to_end(tiny_cfg, tiny_land, tmp_path):
     assert (rob["sensitivity"]["rv_estimate"].between(0, 1)).all()
     assert {"soil_moisture", "severity"} <= set(rob["simex"])
 
+    # #8: the fire effects are re-fitted on classifier-derived fractions and compared with true
+    # cover; the main (Gaussian-noise) fit is reused, not refitted.
+    bias = res["map_error_bias"]
+    assert list(bias["source"]) == ["true", "noise", "classified_625", "classified_25"]
+    assert (
+        bias.loc[1, "eucalyptus"] == res["fire_effects"]["cover_effects"]["f_eucalyptus"].estimate
+    )
+    assert bias[["ratio_eucalyptus", "ratio_contrast"]].notna().all().all()
+
     path = write_report(res, tmp_path)
+    report = path.read_text(encoding="utf-8")
+    assert "Nesgo do erro cartográfico" in report
+    assert "clasificador, 625 unidades por cela" in report
+    assert json.loads((tmp_path / "metrics.json").read_text(encoding="utf-8"))["map_error_bias"]
     assert path.exists()
     for f in (
         "effects.png",

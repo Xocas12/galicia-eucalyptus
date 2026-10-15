@@ -126,6 +126,10 @@ GL: dict[str, str] = {
     "cover": "cuberta",
     "dP(burn)/dshare": "dP(queima)/dfracción",
     "parameter": "parámetro",
+    "source": "orixe da cuberta",
+    "euc_minus_native": "eucalipto \u2212 frondosas",
+    "ratio_eucalyptus": "eucalipto / real",
+    "ratio_contrast": "contraste / real",
 }
 
 

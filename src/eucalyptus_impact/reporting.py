@@ -330,6 +330,85 @@ def _md_table(df: pd.DataFrame, nd=4, values=()) -> str:
     return "\n".join(lines)
 
 
+def _map_error_intro(res: dict) -> str:
+    lc = res["config"].landcover
+    if lc.panel_cover == "classified":
+        src = (
+            "Nesta execución as fraccións observadas proceden do clasificador: "
+            f"{num(int(lc.classified_units_per_cell[0]))} unidades por cela clasificadas "
+            "coa súa matriz de confusión."
+        )
+    else:
+        src = (
+            "Nesta execución as fraccións observadas son a cuberta real máis un ruído gaussiano "
+            f"independente en cada clase (\u03c3 = {num(res['land'].truth.cover_obs_noise)})."
+        )
+    return (
+        f"{src} O ruído gaussiano é erro clásico: no *tratamento* atenúa os efectos cara a cero, "
+        "e todas as fraccións de cuberta o levan, tamén as que actúan como control. As filas "
+        "SIMEX corrixen ese erro: engaden erro cartográfico simulado, observan como se degrada a "
+        "estimación e extrapolan ata erro cero (sección 4b). Unha calibración de regresión máis "
+        "sinxela, cunha única varianza, corrixe en exceso, porque parte do ruído cartográfico do "
+        "tratamento se pode predicir a partir do ruído das outras fraccións.\n\n"
+        "O erro dun mapa clasificado non é só ese. Cada fracción é un reconto de píxeles "
+        "clasificados, e a confusión entre clases contrae a composición de cada cela cara á "
+        "media do mapa. Esa parte sistemática pode inflar os efectos en vez de atenualos, e "
+        "SIMEX, que só engade ruído gaussiano, non a representa. A dirección do nesgo mídese "
+        "embaixo con fraccións construídas a partir do clasificador."
+    )
+
+
+def _map_error_bias_md(res: dict) -> str:
+    tab = res.get("map_error_bias")
+    if tab is None:
+        return ""
+    sigma = num(res["land"].truth.cover_obs_noise)
+
+    def label(src: str) -> str:
+        if src == "true":
+            return "cuberta real"
+        if src == "noise":
+            return f"ruído gaussiano (\u03c3 = {sigma})"
+        return f"clasificador, {num(int(src.split('_')[1]))} unidades por cela"
+
+    def how(r: float) -> str:
+        if r < 0:
+            return "cambia de signo"
+        if abs(r - 1) < 0.02:
+            return "sen nesgo apreciable"
+        return "inflado" if r > 1 else "atenuado"
+
+    show = tab.drop(columns=["units_per_cell"]).assign(source=tab["source"].map(label))
+    lines = [
+        "**Nesgo do erro cartográfico.** Efectos de cada clase sobre P(queima), estimados igual ca "
+        "na táboa anterior pero coa cuberta de distintos mapas: a real, a do ruído gaussiano e "
+        "fraccións de unidades clasificadas coa matriz de confusión do clasificador de especies "
+        "(sección 2), medida no mapa completo. Cantas menos unidades independentes por cela, "
+        "máis agrupados están os erros no espazo. As dúas últimas columnas dividen o efecto do "
+        "eucalipto e o contraste eucalipto \u2212 frondosas autóctonas polo seu valor coa cuberta "
+        "real: por riba de 1 o erro infla o efecto, por debaixo de 1 atenúao.",
+        "",
+        _md_table(show),
+        "",
+    ]
+    for _, r in tab.iterrows():
+        if r["source"] in ("true",):
+            continue
+        lines.append(
+            f"- {label(r['source']).capitalize()}: efecto do eucalipto "
+            f"{num(r['ratio_eucalyptus'], 3)} veces o da cuberta real ({how(r['ratio_eucalyptus'])}), "
+            f"contraste eucalipto \u2212 frondosas {num(r['ratio_contrast'], 3)} veces "
+            f"({how(r['ratio_contrast'])})."
+        )
+    lines += [
+        "",
+        "A confusión e o agrupamento dos erros dun mapa real son outros, así que estas razóns non "
+        "se trasladan aos datos reais. O que mostran é que o erro dun mapa clasificado non ten "
+        "unha dirección fixada: non se pode dar por feito que atenúa os efectos.",
+    ]
+    return "\n".join(lines)
+
+
 def _robustness_md(rob: dict) -> str:
     if not rob:
         return ""
@@ -451,6 +530,9 @@ def write_report(res: dict, out_dir: str | Path) -> Path:
         "budyko_params": water["budyko_params"],
         "matching_dropped_share": water["matching_balance"].attrs.get("dropped_share"),
         "effects": tab.to_dict(orient="records"),
+        "map_error_bias": res["map_error_bias"].to_dict(orient="records")
+        if "map_error_bias" in res
+        else None,
         "sensitivity": res.get("robustness", {})
         .get("sensitivity", pd.DataFrame())
         .to_dict(orient="records"),
@@ -502,12 +584,7 @@ tipos de cuberta.
 ![efectos](effects.png)
 
 Varianza do erro cartográfico da fracción de eucalipto (segundo a mostra de referencia):
-{num(res.get("map_error_var", float("nan")), 2)}. O erro do clasificador no *tratamento* atenúa
-todos os efectos cara a cero, e todas as fraccións de cuberta levan erro, tamén as que actúan como
-control. As filas SIMEX corrixen isto: engaden erro cartográfico simulado, observan como se
-degrada a estimación e extrapolan ata erro cero (sección 4b). Unha calibración de regresión máis
-sinxela, cunha única varianza, corrixe en exceso, porque parte do ruído cartográfico do tratamento
-se pode predicir a partir do ruído das outras fraccións.
+{num(res.get("map_error_var", float("nan")), 2)}. {_map_error_intro(res)}
 
 Efecto de cada clase de cuberta sobre a probabilidade de incendio fronte á referencia
 agricultura/outros. Úsase para valorar os escenarios. O valor real, na escala logit, é:
@@ -515,6 +592,8 @@ eucalipto {num(tp.fire_euc)}, piñeiro {num(tp.fire_pine)}, frondosas autóctona
 {num(tp.fire_native)} e mato {num(tp.fire_shrub)}.
 
 {_md_table(cover_tab, values=("cover",))}
+
+{_map_error_bias_md(res)}
 
 ## 2. Cartografía de especies e contabilidade da perda forestal
 

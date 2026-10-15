@@ -12,8 +12,10 @@ to **native forest**, **wildfire** and **water**, and what alternative forest pl
 > OpenStreetMap labels, harvest-history pseudo-labels and the Mapa Forestal de España (MFE50,
 > about 1998), and are checked against the MFE50 and the IFN3 inventory plots. The eucalyptus
 > area is plausible, but pixel- and plot-level agreement is modest (F1 about 0.5), and map error
-> attenuates every estimate that uses the map. Numbers from the synthetic runs are properties of
-> the methods, not facts about Galicia.
+> biases every estimate that uses the map in a direction that is not known. The random,
+> cell-to-cell part of the error pulls effects toward zero; the systematic part (class confusion
+> contracts each cell's mapped composition toward the map average) can inflate them instead.
+> Numbers from the synthetic runs are properties of the methods, not facts about Galicia.
 
 Self-contained: one `pyproject.toml`, one test suite, one virtual environment. The synthetic
 end-to-end run is pure numpy and scikit-learn; the real-data ingestion lives behind the
@@ -67,9 +69,17 @@ These are properties of the *methods*, not facts about Galicia:
   - Tree-only nuisance models approximate near-linear relationships in steps, which cost about
     17% of the soil-moisture effect even with perfect maps. The default nuisance learner is now
     ridge plus boosted residuals.
-  - Map error in *every* cover fraction attenuates the effects. A single-variance correction
+  - Gaussian noise in *every* cover fraction attenuates the effects. A single-variance correction
     over-corrects, while SIMEX recovers the truth: soil moisture −0.058 vs −0.06, severity 127
-    vs 120.
+    vs 120. That noise is classical error only, and SIMEX only corrects classical error.
+- **Map error from a classifier has no fixed direction.** A real cover fraction counts
+  hard-classified pixels, so class confusion contracts it toward the map average. Re-fitting the
+  fire effects on fractions drawn through the species classifier's own confusion matrix, against
+  the same fit on true cover: with independent errors per 40 m pixel (625 units per 1 km cell)
+  the eucalyptus effect is inflated 1.16× and the eucalyptus − native contrast 1.11×; with errors
+  clustered in 25 patches per cell both are attenuated (0.50× and 0.45×). Gaussian noise gives
+  0.90× and 1.03×. Which regime the real maps are in is not known, so the real fire effects
+  carry a bias of unknown direction.
 - **The effect is heterogeneous.** Eucalyptus raises fire probability most in the interior and
   under high fire weather. The group effects rank the same way as the truth, but the low-risk
   groups (coast, low fire weather) are overestimated by roughly 2× and shrink toward the pooled
