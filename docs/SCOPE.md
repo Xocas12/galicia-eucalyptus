@@ -142,9 +142,19 @@ has the ingestion adapters. The adapters are written but **have not been run fro
   sign, and the causal estimators recover the planted effects.
 - Differencing two maps roughly doubles the apparent conversion area. Stratified estimation
   is mandatory.
-- Map error attenuates DML estimates. Because *every* cover fraction is noisy, controls
-  included, a single-variance regression calibration mis-corrects. SIMEX (extra simulated map
-  error, extrapolated back to zero) recovers the truth and is the correction used.
+- Gaussian noise in the cover fractions (classical error) attenuates DML estimates. Because
+  *every* cover fraction is noisy, controls included, a single-variance regression calibration
+  mis-corrects. SIMEX (extra simulated Gaussian error, extrapolated back to zero) recovers the
+  truth and is the correction used for that kind of error.
+- Error from a classifier is not only classical. A cover fraction counts hard-classified pixels,
+  so nondifferential confusion C turns the true composition f into f·C, a contraction toward the
+  map average that pushes class effects *outward*; only the cell-to-cell random part attenuates.
+  With fractions drawn through the species classifier's confusion matrix
+  (`landcover.panel_cover: classified`, and the bias table in the synthetic report), the
+  eucalyptus fire effect is 1.16× its true-cover value with pixel-independent errors and 0.50×
+  with errors clustered in 25 patches per cell. The direction of the map-error bias on the real
+  fire effects is therefore unknown until C and the error clustering are estimated on an
+  independent reference.
 - Tree-only nuisance learners leave regularization bias on near-linear structure (about 17% on
   soil moisture with perfect maps). The default nuisance learner is now ridge plus boosted
   residuals.
@@ -164,8 +174,10 @@ has the ingestion adapters. The adapters are written but **have not been run fro
   "solved".
 - *Interference / spillover:* fire spreads across cells. Neighbourhood cover is added as a
   covariate, and SEs are clustered at block scale.
-- *Measurement error in treatment:* species maps are imperfect. Propagate classifier uncertainty
-  (re-estimate with posterior class probabilities).
+- *Measurement error in treatment:* species maps are imperfect, and the error is partly
+  systematic (class confusion), so its bias has no fixed sign. Propagate classifier uncertainty
+  (re-estimate with posterior class probabilities), and correct fractions or coefficients by the
+  inverse of a confusion matrix estimated on an independent reference.
 - *Reverse causality:* fire → plantation is modelled explicitly with lagged cover (cover at t−1
   → fire at t).
 - *Scale:* 1 km cells mix land uses. Fractions rather than dominant class are used for all effects.

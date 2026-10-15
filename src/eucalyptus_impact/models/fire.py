@@ -78,6 +78,51 @@ def fit_susceptibility(panel: pd.DataFrame, n_folds=5, seed=0, max_rows=250_000)
     }
 
 
+OTHER_COVER = ("f_pine", "f_native_broadleaf", "f_shrub")
+
+
+def _other_cover_effects(df, y, g, n_folds, seed, d_error_var=None) -> dict:
+    out = {}
+    for cls in OTHER_COVER:
+        Xc = df[[c for c in CONFOUNDERS if c != cls] + ["f_eucalyptus"]].to_numpy()
+        out[cls] = dml_plr(
+            y,
+            df[cls].to_numpy(),
+            Xc,
+            g,
+            n_folds,
+            seed,
+            name=f"{cls[2:]} -> P(burn)",
+            d_error_var=d_error_var,
+        )
+    return out
+
+
+def cover_effects(panel: pd.DataFrame, n_folds=5, seed=0, max_rows=250_000) -> dict:
+    """DML occurrence effect of each cover class vs agriculture/other, as in estimate_fire_effects.
+
+    Same subsample, controls and seeds, so on the same panel the estimates are identical to
+    `estimate_fire_effects(...)["cover_effects"]`. Used to re-fit the effects on panels whose cover
+    comes from a different map (true cover, Gaussian noise, classifier-derived fractions).
+    """
+    df = _subsample(panel, max_rows, seed)
+    y = df["burned"].to_numpy().astype(float)
+    g = df["block"].to_numpy()
+    out = {
+        "f_eucalyptus": dml_plr(
+            y,
+            df["f_eucalyptus"].to_numpy(),
+            df[CONFOUNDERS].to_numpy(),
+            g,
+            n_folds,
+            seed,
+            name="eucalyptus -> P(burn)",
+        )
+    }
+    out.update(_other_cover_effects(df, y, g, n_folds, seed))
+    return out
+
+
 def estimate_fire_effects(
     panel: pd.DataFrame, n_folds=5, seed=0, max_rows=250_000, d_error_var: float | None = None
 ) -> dict:
@@ -104,18 +149,7 @@ def estimate_fire_effects(
     # Effect of every other cover class (vs the agriculture/other reference) so scenarios can price
     # the full cover change, not only the eucalyptus share.
     cover_effects = {"f_eucalyptus": occ_me or occ_dml}
-    for cls in ("f_pine", "f_native_broadleaf", "f_shrub"):
-        Xc = df[[c for c in CONFOUNDERS if c != cls] + ["f_eucalyptus"]].to_numpy()
-        cover_effects[cls] = dml_plr(
-            y,
-            df[cls].to_numpy(),
-            Xc,
-            g,
-            n_folds,
-            seed,
-            name=f"{cls[2:]} -> P(burn)",
-            d_error_var=d_error_var,
-        )
+    cover_effects.update(_other_cover_effects(df, y, g, n_folds, seed, d_error_var))
 
     b = panel[panel["burned"] == 1]
     truth_sev = float(b["true_te_severity"].mean()) if "true_te_severity" in b else None

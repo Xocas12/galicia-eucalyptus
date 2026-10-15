@@ -1,9 +1,14 @@
 """Cell-year and catchment-year analysis panels built from a landscape.
 
-Treatments always use *observed* (mapped) cover, never the simulator's true cover, so
-classification error flows into the estimates just as it will with real maps. Cover enters fire
-models lagged by one year (cover at t-1 -> fire at t) to keep fire -> cover reverse causality out of
-the treatment.
+Treatments always use the landscape's *observed* cover (`land.cover_obs`), never the simulator's
+true cover. By default that is the true cover plus independent Gaussian noise per class, which is
+classical error only: it attenuates. A real map is different. Each cell fraction is a count of
+hard-classified pixels, so nondifferential misclassification with confusion matrix C turns the
+true composition f into f @ C, a contraction toward the map average that can inflate the class
+effects instead. `classified_cover` builds fractions that way from the species classifier's own
+confusion matrix, and the pipeline can swap them in (`landcover.panel_cover: classified`) or
+compare both (`map_error_bias`). Cover enters fire models lagged by one year (cover at t-1 -> fire
+at t) to keep fire -> cover reverse causality out of the treatment.
 """
 
 from __future__ import annotations
@@ -27,6 +32,34 @@ STATIC_COVARIATES = [
     "dist_mill_km",
 ]
 COVER_COLS = [f"f_{c}" for c in CLASSES]
+
+
+def map_confusion(true_labels, map_labels, n_classes: int = len(CLASSES)) -> np.ndarray:
+    """Row-normalised confusion matrix C[i, j] = P(mapped class j | true class i).
+
+    A true class absent from the sample gets an identity row (no information, no error).
+    """
+    counts = np.zeros((n_classes, n_classes))
+    np.add.at(counts, (np.asarray(true_labels), np.asarray(map_labels)), 1)
+    rows = counts.sum(axis=1, keepdims=True)
+    return np.where(rows > 0, counts / np.maximum(rows, 1), np.eye(n_classes))
+
+
+def classified_cover(
+    cover: np.ndarray, confusion: np.ndarray, units_per_cell: int, rng: np.random.Generator
+) -> np.ndarray:
+    """Cell fractions as a classified map would report them.
+
+    Each cell holds `units_per_cell` independently classified units (pixels, or patches of pixels
+    that share one error when errors are spatially clustered). A unit of true class i is mapped
+    to class j with probability confusion[i, j], so the mapped counts are multinomial with mean
+    units * (cover @ confusion). Their expectation is the systematic contraction f @ C; the
+    multinomial spread is the random, cell-to-cell part of the error.
+    """
+    p = np.clip(cover @ confusion, 0, None)
+    p /= p.sum(axis=-1, keepdims=True)
+    counts = rng.multinomial(int(units_per_cell), p)
+    return counts / float(units_per_cell)
 
 
 def build_cell_panel(land: Landscape) -> pd.DataFrame:

@@ -38,12 +38,9 @@ tipos de cuberta.
 ![efectos](effects.png)
 
 Varianza do erro cartográfico da fracción de eucalipto (segundo a mostra de referencia):
-0,00042. O erro do clasificador no *tratamento* atenúa
-todos os efectos cara a cero, e todas as fraccións de cuberta levan erro, tamén as que actúan como
-control. As filas SIMEX corrixen isto: engaden erro cartográfico simulado, observan como se
-degrada a estimación e extrapolan ata erro cero (sección 4b). Unha calibración de regresión máis
-sinxela, cunha única varianza, corrixe en exceso, porque parte do ruído cartográfico do tratamento
-se pode predicir a partir do ruído das outras fraccións.
+0,00042. Nesta execución as fraccións observadas son a cuberta real máis un ruído gaussiano independente en cada clase (σ = 0,02). O ruído gaussiano é erro clásico: no *tratamento* atenúa os efectos cara a cero, e todas as fraccións de cuberta o levan, tamén as que actúan como control. As filas SIMEX corrixen ese erro: engaden erro cartográfico simulado, observan como se degrada a estimación e extrapolan ata erro cero (sección 4b). Unha calibración de regresión máis sinxela, cunha única varianza, corrixe en exceso, porque parte do ruído cartográfico do tratamento se pode predicir a partir do ruído das outras fraccións.
+
+O erro dun mapa clasificado non é só ese. Cada fracción é un reconto de píxeles clasificados, e a confusión entre clases contrae a composición de cada cela cara á media do mapa. Esa parte sistemática pode inflar os efectos en vez de atenualos, e SIMEX, que só engade ruído gaussiano, non a representa. A dirección do nesgo mídese embaixo con fraccións construídas a partir do clasificador.
 
 Efecto de cada clase de cuberta sobre a probabilidade de incendio fronte á referencia
 agricultura/outros. Úsase para valorar os escenarios. O valor real, na escala logit, é:
@@ -55,7 +52,22 @@ eucalipto 0,9, piñeiro 0,7, frondosas autóctonas
 | eucalipto | 0,02791 | 0,00626 |
 | piñeiro | 0,01779 | 0,007285 |
 | frondosas autóctonas | -0,005582 | 0,005281 |
-| mato | 0,03905 | 0,007613 |
+| mato | 0,03904 | 0,007613 |
+
+**Nesgo do erro cartográfico.** Efectos de cada clase sobre P(queima), estimados igual ca na táboa anterior pero coa cuberta de distintos mapas: a real, a do ruído gaussiano e fraccións de unidades clasificadas coa matriz de confusión do clasificador de especies (sección 2), medida no mapa completo. Cantas menos unidades independentes por cela, máis agrupados están os erros no espazo. As dúas últimas columnas dividen o efecto do eucalipto e o contraste eucalipto − frondosas autóctonas polo seu valor coa cuberta real: por riba de 1 o erro infla o efecto, por debaixo de 1 atenúao.
+
+| orixe da cuberta | eucalipto | piñeiro | frondosas autóctonas | mato | eucalipto − frondosas | eucalipto / real | contraste / real |
+|---|---|---|---|---|---|---|---|
+| cuberta real | 0,03095 | 0,02246 | -0,001731 | 0,04846 | 0,03268 | 1 | 1 |
+| ruído gaussiano (σ = 0,02) | 0,02791 | 0,01779 | -0,005582 | 0,03904 | 0,0335 | 0,902 | 1,025 |
+| clasificador, 625 unidades por cela | 0,03584 | 0,02333 | -0,0003234 | 0,0503 | 0,03617 | 1,158 | 1,107 |
+| clasificador, 25 unidades por cela | 0,01532 | 0,01426 | 0,0007295 | 0,02526 | 0,01459 | 0,4952 | 0,4466 |
+
+- Ruído gaussiano (σ = 0,02): efecto do eucalipto 0,902 veces o da cuberta real (atenuado), contraste eucalipto − frondosas 1,03 veces (inflado).
+- Clasificador, 625 unidades por cela: efecto do eucalipto 1,16 veces o da cuberta real (inflado), contraste eucalipto − frondosas 1,11 veces (inflado).
+- Clasificador, 25 unidades por cela: efecto do eucalipto 0,495 veces o da cuberta real (atenuado), contraste eucalipto − frondosas 0,447 veces (atenuado).
+
+A confusión e o agrupamento dos erros dun mapa real son outros, así que estas razóns non se trasladan aos datos reais. O que mostran é que o erro dun mapa clasificado non ten unha dirección fixada: non se pode dar por feito que atenúa os efectos.
 
 ## 2. Cartografía de especies e contabilidade da perda forestal
 
@@ -183,8 +195,8 @@ queimados, como se fai cos datos reais.
 
 | escenario | Δ eucalipto (ha) | Δ queimado simulado (ha/ano) | Δ queimado modelo (ha/ano) | Δ queimado medio simulado (ha/ano) | Δ queimado medio dinámico (ha/ano) | Δ escorrentía simulada (mm) | Δ escorrentía modelo (mm) |
 |---|---|---|---|---|---|---|---|
-| Límite / moratoria | -35 873 | -102,3 | -94,73 | -52,55 | -322,2 | 0,674 | 0,6627 |
-| Restauración dirixida | -242 401 | -2 437 | -4 572 | -2 058 | -2 963 | 3,646 | 3,924 |
+| Límite / moratoria | -35 873 | -102,3 | -94,76 | -52,55 | -321,2 | 0,674 | 0,6627 |
+| Restauración dirixida | -242 401 | -2 437 | -4 572 | -2 058 | -2 962 | 3,646 | 3,924 |
 | Restauración aleatoria | -242 347 | -1 899 | -2 866 | -1 519 | -2 120 | 3,877 | 4,116 |
 
 ![escenarios](scenarios.png)

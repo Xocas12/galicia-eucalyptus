@@ -23,6 +23,9 @@ class CausalConfig:
     max_rows: int = 250_000
     # SIMEX map-error correction for the soil-moisture and severity effects (re-fits DML ~9 times).
     simex: bool = True
+    # Re-fit the cover-class fire effects on true cover and on classifier-derived fractions, to
+    # measure the direction and size of the bias that map error causes (adds ~12 DML fits).
+    map_error_check: bool = True
 
 
 @dataclass
@@ -30,6 +33,14 @@ class LandcoverConfig:
     n_train_pixels: int = 12_000
     n_map_pixels: int = 60_000
     reference_per_class: int = 150
+    # Cover the causal panels use. "noise": true cover plus Gaussian noise (classical error).
+    # "classified": fractions of classified units drawn through the species classifier's
+    # confusion matrix (see features.panel.classified_cover), with the first entry of
+    # classified_units_per_cell independent units per cell.
+    panel_cover: str = "noise"
+    # Independent classification units per cell for classifier-derived fractions. 625 is a 1 km
+    # cell of 40 m pixels with independent errors; fewer units mean spatially clustered errors.
+    classified_units_per_cell: tuple[int, ...] = (625, 25)
 
 
 @dataclass

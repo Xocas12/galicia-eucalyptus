@@ -208,8 +208,8 @@ Que se conclúe:
 - **Adestrar coas parcelas non mellora o mapa.** Nun experimento, as parcelas da metade dos bloques de 10 km (1 341 sen perturbación desde 2001) engadíronse ao adestramento e avaliouse nas 3 133 da outra metade: F1 0,44 co mapa actual e 0,42–0,44 coas parcelas; adestrando só coas parcelas, 0,26. Unha parcela con algún eucalipto non é unha boa etiqueta para un píxel de 40 m, así que este acordo é en parte un teito da referencia, non só do mapa.
 
 Consecuencia: as cifras de superficie son plausibles, pero a localización do eucalipto píxel a
-píxel é incerta. Os efectos estimados sobre os incendios están atenuados por este erro
-(sección 7).
+píxel é incerta. Este erro despraza os efectos estimados sobre os incendios nunha
+dirección que non se coñece (sección 7).
 
 ### Mapa histórico con Landsat, 1990–2017
 
@@ -508,9 +508,16 @@ Conclusión: **cos mapas dispoñibles (2017 e 2024), nin sequera cos aforos se p
   clasificadas. A comprobación con GBIF (sección 2) é independente pero oportunista; a
   validación definitiva debe facerse co Mapa Forestal de España ou co IFN4.
 - **Erro do mapa.** As parcelas de inventario mostran que o erro de localización do eucalipto
-  é grande, e ese erro atenúa os efectos cara a cero. Non se aplicou SIMEX porque as parcelas
-  (presenza de eucalipto nun círculo de 25 m, sen data) non miden o mesmo ca o píxel, así que
-  non dan a varianza do erro.
+  é grande, e non se sabe en que dirección despraza os efectos. A parte aleatoria do erro, a
+  que cambia dunha cela a outra, atenúaos. Pero cada fracción é un reconto de píxeles
+  clasificados, e a confusión sistemática entre clases contrae a composición de cada cela
+  cara á media do mapa, o que pode inflar os efectos de cada clase e o contraste entre
+  eucalipto e frondosas. Na validación sintética, con fraccións construídas a partir do
+  clasificador, o efecto do eucalipto inflouse ou atenuouse segundo canto se agrupan os
+  erros no espazo. Non se aplicou SIMEX: as parcelas (presenza de eucalipto nun círculo de
+  25 m, sen data) non miden o mesmo ca o píxel, así que non dan a varianza do erro, e SIMEX
+  con ruído gaussiano só corrixe a parte aleatoria. Corrixir a parte sistemática esixe
+  estimar a matriz de confusión cunha referencia independente.
 - **Incendios.** EFFIS rexistra sobre todo os incendios grandes; os pequenos quedan fóra. Só hai
   seis anos (2018–2023) e 2022 domina o total.
 - **Causalidade.** Os efectos son causais só se non queda confusión relevante sen medir (por
